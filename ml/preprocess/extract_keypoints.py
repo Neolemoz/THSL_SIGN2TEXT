@@ -3,7 +3,7 @@ import json
 import sys
 
 import cv2
-from mediapipe.python.solutions import holistic as mp_holistic
+import mediapipe as mp
 import numpy as np
 
 
@@ -70,7 +70,7 @@ def main() -> int:
     missing_left = 0
     missing_right = 0
 
-    with mp_holistic.Holistic(
+    with mp.solutions.holistic.Holistic(
         model_complexity=1, min_detection_confidence=0.5, min_tracking_confidence=0.5
     ) as holistic:
         frame_index = 0
