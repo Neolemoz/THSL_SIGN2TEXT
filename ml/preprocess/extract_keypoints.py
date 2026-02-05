@@ -23,6 +23,11 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Optional resize width (keeps aspect ratio).",
     )
+    parser.add_argument(
+        "--show",
+        action="store_true",
+        help="Show video with hand landmark overlays.",
+    )
     return parser.parse_args()
 
 
@@ -70,6 +75,7 @@ def main() -> int:
     missing_left = 0
     missing_right = 0
 
+    drawing_utils = mp.solutions.drawing_utils
     with mp.solutions.holistic.Holistic(
         model_complexity=1, min_detection_confidence=0.5, min_tracking_confidence=0.5
     ) as holistic:
@@ -89,6 +95,10 @@ def main() -> int:
                 missing_left += 1
             if results.right_hand_landmarks is None:
                 missing_right += 1
+            if frame_index % 30 == 0:
+                left_status = "Y" if results.left_hand_landmarks else "N"
+                right_status = "Y" if results.right_hand_landmarks else "N"
+                print(f"[frame {frame_index}] left={left_status} right={right_status}")
 
             feature = np.concatenate([left_vec.flatten(), right_vec.flatten()]).astype(
                 np.float32
@@ -99,8 +109,16 @@ def main() -> int:
             if args.max_frames and frame_index >= args.max_frames:
                 break
 
-            if input_mode == "webcam":
-                cv2.imshow("THSL_SIGN2TEXT - Webcam", frame)
+            if args.show:
+                if results.left_hand_landmarks:
+                    drawing_utils.draw_landmarks(
+                        frame, results.left_hand_landmarks, mp.solutions.holistic.HAND_CONNECTIONS
+                    )
+                if results.right_hand_landmarks:
+                    drawing_utils.draw_landmarks(
+                        frame, results.right_hand_landmarks, mp.solutions.holistic.HAND_CONNECTIONS
+                    )
+                cv2.imshow("THSL Keypoints", frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
 
