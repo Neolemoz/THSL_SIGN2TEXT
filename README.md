@@ -6,4 +6,7 @@
 3. Install: `python -m pip install -U pip ; python -m pip install -r requirements.txt`
 4. Run doctor: `python tools/doctor.py`
 
-Next step: `extract_keypoints.py` (coming in next PR)
+Next step: run `ml/preprocess/extract_keypoints.py` on your videos.
+
+Example (video file):
+`python ml/preprocess/extract_keypoints.py --input path\to\video.mp4 --out reports\sample_keypoints.npz`
