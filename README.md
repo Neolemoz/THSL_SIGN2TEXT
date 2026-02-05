@@ -13,3 +13,6 @@ Example (video file):
 
 ThaiSignVis manifest conversion:
 `python tools/convert_thaisignvis_to_manifest.py --root data\raw\thaisignvis --out data\manifest\manifest.jsonl --qc_out reports\thaisignvis_qc.json`
+
+Batch keypoint extraction (quick test):
+`python ml/preprocess/batch_extract.py --limit 10`
