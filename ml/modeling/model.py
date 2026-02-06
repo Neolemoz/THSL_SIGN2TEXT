@@ -11,7 +11,7 @@ class BiLSTMCTC(nn.Module):
         hidden_dim: int,
         vocab_size: int,
         num_layers: int = 2,
-        blank_bias: float = 2.0,
+        blank_bias: float = 0.5,
     ) -> None:
         super().__init__()
         self.blank_bias = blank_bias

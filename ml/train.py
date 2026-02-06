@@ -36,7 +36,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--lr", type=float, default=3e-4)
-    parser.add_argument("--blank_bias", type=float, default=2.0)
+    parser.add_argument("--blank_bias", type=float, default=0.5)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--device", default="cpu")
     return parser.parse_args()
@@ -88,6 +88,17 @@ def _greedy_decode(
             prev = idx
         decoded.append(decode_ids(vocab, collapsed))
     return decoded
+
+
+def _blank_ratio(log_probs: torch.Tensor, lengths: torch.Tensor, blank_id: int) -> float:
+    preds = torch.argmax(log_probs, dim=-1)
+    total = 0
+    blanks = 0
+    for i in range(preds.shape[0]):
+        seq = preds[i, : lengths[i]].tolist()
+        total += len(seq)
+        blanks += sum(1 for idx in seq if idx == blank_id)
+    return (blanks / total) if total else 0.0
 
 
 def _edit_distance(a: List[str], b: List[str]) -> int:
@@ -226,6 +237,7 @@ def main() -> int:
 
         train_cer_total = 0.0
         train_count = 0
+        blank_ratios: List[float] = []
         with torch.no_grad():
             for batch_idx, (xs, x_lens, _, _, _, texts) in enumerate(train_loader):
                 if batch_idx >= 8:
@@ -233,6 +245,7 @@ def main() -> int:
                 xs = xs.to(device)
                 x_lens = x_lens.to(device)
                 log_probs = model(xs, x_lens)
+                blank_ratios.append(_blank_ratio(log_probs, x_lens, vocab.blank_id))
                 decoded = _greedy_decode(
                     log_probs, x_lens, vocab, debug_blank=(batch_idx == 0)
                 )
@@ -240,9 +253,14 @@ def main() -> int:
                     train_cer_total += _cer(pred, gt)
                     train_count += 1
         train_cer = train_cer_total / max(1, train_count)
+        avg_blank_ratio = sum(blank_ratios) / max(1, len(blank_ratios))
+        if avg_blank_ratio < 0.05 or avg_blank_ratio > 0.95:
+            print(
+                f"Warning: blank_ratio={avg_blank_ratio:.3f} suggests tuning --blank_bias"
+            )
 
         print(
-            f"Epoch {epoch}/{args.epochs} - loss={avg_loss:.4f} train_CER={train_cer:.4f} val_CER={avg_cer:.4f} val_WER={avg_wer:.4f}"
+            f"Epoch {epoch}/{args.epochs} - loss={avg_loss:.4f} train_CER={train_cer:.4f} val_CER={avg_cer:.4f} val_WER={avg_wer:.4f} blank_ratio={avg_blank_ratio:.3f}"
         )
 
         with open(os.path.join(args.out_dir, "samples.txt"), "w", encoding="utf-8") as handle:

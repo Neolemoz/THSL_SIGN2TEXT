@@ -8,4 +8,4 @@ epochs: 10
 train_split: 0.9
 model: bilstm_ctc
 notes: baseline keypoints to Thai text using CTC
-blank_bias: 2.0
+blank_bias: 0.5
