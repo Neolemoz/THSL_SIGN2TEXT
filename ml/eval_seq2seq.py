@@ -240,6 +240,8 @@ def _beam_search_decode(
 
 def main() -> int:
     args = _parse_args()
+    print("DEBUG: eval_seq2seq starting")
+    print(f"DEBUG: requested_limit={args.limit} batch_size={args.batch_size}")
     checkpoint_path = args.checkpoint
     if os.path.isdir(checkpoint_path):
         candidate_best = os.path.join(checkpoint_path, "best.pt")
@@ -255,16 +257,19 @@ def main() -> int:
     ckpt = torch.load(checkpoint_path, map_location="cpu")
     vocab = Vocab(chars=ckpt["vocab"])
 
-    samples = load_manifest(args.manifest, args.kp_dir, limit=args.limit)
+    samples = load_manifest(args.manifest, args.kp_dir, limit=None)
     if not samples:
         print("No samples available for evaluation.")
         return 1
+    print(f"DEBUG: loaded_samples={len(samples)}")
 
     train_samples, val_samples = _split_samples(samples, seed=42, val_ratio=0.1)
+    print(f"DEBUG: split_sizes train={len(train_samples)} val={len(val_samples)}")
     if args.split == "train":
         samples = train_samples
     elif args.split == "val":
         samples = val_samples
+    print(f"DEBUG: samples_after_split={len(samples)} split={args.split}")
 
     dataset = Seq2SeqDataset(samples, vocab)
     loader = DataLoader(
@@ -273,6 +278,7 @@ def main() -> int:
         shuffle=False,
         collate_fn=lambda batch: collate_seq2seq(batch, vocab.pad_id),
     )
+    print(f"DEBUG: dataset_len={len(dataset)} dataloader_len={len(loader)}")
 
     device = torch.device(args.device)
     model = Seq2SeqModel(input_dim=126, hidden_dim=256, vocab_size=len(vocab)).to(device)
@@ -285,40 +291,57 @@ def main() -> int:
     sample_lines: List[str] = []
     processed = 0
     requested_limit = args.limit
-    with torch.no_grad():
-        for xs, x_lens, y_in, y_out, ids, texts in loader:
-            xs = xs.to(device)
-            x_lens = x_lens.to(device)
-            if args.zero_input:
-                print("DEBUG: zero_input=ON")
-                xs = torch.zeros_like(xs)
-            if args.beam_size > 1:
-                preds = _beam_search_decode(
-                    model,
-                    xs,
-                    x_lens,
-                    vocab,
-                    args.beam_size,
-                    args.max_len,
-                    args.len_penalty,
-                    args.no_repeat_ngram,
-                    args.max_repeat_token,
-                )
-            else:
-                max_len = min(args.max_len, y_in.shape[1] + 1)
-                preds = _greedy_decode(
-                    model, xs, x_lens, vocab, max_len, args.no_repeat_ngram, args.max_repeat_token
-                )
-            for sample_id, pred, gt in zip(ids, preds, texts):
+    exit_reason = "exhausted"
+    try:
+        with torch.no_grad():
+            for batch_idx, (xs, x_lens, y_in, y_out, ids, texts) in enumerate(loader):
+                if batch_idx < 5:
+                    print(
+                        f"DEBUG: batch_idx={batch_idx} batch_size={len(ids)} processed={processed}"
+                    )
+                xs = xs.to(device)
+                x_lens = x_lens.to(device)
+                if args.zero_input:
+                    print("DEBUG: zero_input=ON")
+                    xs = torch.zeros_like(xs)
+                if args.beam_size > 1:
+                    preds = _beam_search_decode(
+                        model,
+                        xs,
+                        x_lens,
+                        vocab,
+                        args.beam_size,
+                        args.max_len,
+                        args.len_penalty,
+                        args.no_repeat_ngram,
+                        args.max_repeat_token,
+                    )
+                else:
+                    max_len = min(args.max_len, y_in.shape[1] + 1)
+                    preds = _greedy_decode(
+                        model,
+                        xs,
+                        x_lens,
+                        vocab,
+                        max_len,
+                        args.no_repeat_ngram,
+                        args.max_repeat_token,
+                    )
+                for sample_id, pred, gt in zip(ids, preds, texts):
+                    if requested_limit is not None and processed >= requested_limit:
+                        exit_reason = "limit_reached"
+                        break
+                    cer_total += _cer(pred, gt)
+                    wer_total += _wer(pred, gt)
+                    count += 1
+                    processed += 1
+                    sample_lines.append(f"{sample_id}\tPRED: {pred}\tGT: {gt}")
                 if requested_limit is not None and processed >= requested_limit:
+                    exit_reason = "limit_reached"
                     break
-                cer_total += _cer(pred, gt)
-                wer_total += _wer(pred, gt)
-                count += 1
-                processed += 1
-                sample_lines.append(f"{sample_id}\tPRED: {pred}\tGT: {gt}")
-            if requested_limit is not None and processed >= requested_limit:
-                break
+    except Exception as exc:
+        exit_reason = f"exception: {exc}"
+        raise
 
     avg_cer = cer_total / max(1, count)
     avg_wer = wer_total / max(1, count)
@@ -335,6 +358,7 @@ def main() -> int:
     print(f"Wrote metrics to {metrics_path}")
     print(f"Wrote samples to {samples_path}")
     print(f"EVAL: requested_limit={requested_limit} processed={processed} wrote={processed}")
+    print(f"DEBUG: loop_exit={exit_reason}")
     return 0
 
 
