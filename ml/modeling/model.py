@@ -5,8 +5,16 @@ from torch import nn
 
 
 class BiLSTMCTC(nn.Module):
-    def __init__(self, input_dim: int, hidden_dim: int, vocab_size: int, num_layers: int = 2) -> None:
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dim: int,
+        vocab_size: int,
+        num_layers: int = 2,
+        blank_bias: float = 2.0,
+    ) -> None:
         super().__init__()
+        self.blank_bias = blank_bias
         self.lstm = nn.LSTM(
             input_dim,
             hidden_dim,
@@ -24,5 +32,7 @@ class BiLSTMCTC(nn.Module):
         packed_out, _ = self.lstm(packed)
         out, _ = nn.utils.rnn.pad_packed_sequence(packed_out, batch_first=True)
         logits = self.classifier(out)
+        if self.training and self.blank_bias:
+            logits[..., 0] -= float(self.blank_bias)
         log_probs = torch.log_softmax(logits, dim=-1)
         return log_probs

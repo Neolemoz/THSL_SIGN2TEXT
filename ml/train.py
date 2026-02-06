@@ -35,7 +35,8 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch_size", type=int, default=8)
-    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--blank_bias", type=float, default=2.0)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--device", default="cpu")
     return parser.parse_args()
@@ -150,9 +151,17 @@ def main() -> int:
     )
 
     device = torch.device(args.device)
-    model = BiLSTMCTC(input_dim=126, hidden_dim=256, vocab_size=len(vocab)).to(device)
+    model = BiLSTMCTC(
+        input_dim=126,
+        hidden_dim=256,
+        vocab_size=len(vocab),
+        blank_bias=args.blank_bias,
+    ).to(device)
     criterion = nn.CTCLoss(blank=0, zero_infinity=True)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    total_steps = max(1, args.epochs * max(1, len(train_loader)))
+    warmup_steps = max(1, int(0.05 * total_steps))
+    step_count = 0
 
     os.makedirs(args.out_dir, exist_ok=True)
     metrics = {"train_loss": [], "val_cer": [], "val_wer": []}
@@ -182,6 +191,10 @@ def main() -> int:
             loss = criterion(log_probs_t, targets, x_lens, y_lens)
             optimizer.zero_grad()
             loss.backward()
+            step_count += 1
+            warmup_scale = min(1.0, step_count / warmup_steps)
+            for group in optimizer.param_groups:
+                group["lr"] = args.lr * warmup_scale
             optimizer.step()
             total_loss += loss.item()
 
@@ -221,7 +234,7 @@ def main() -> int:
                 x_lens = x_lens.to(device)
                 log_probs = model(xs, x_lens)
                 decoded = _greedy_decode(
-                    log_probs, x_lens, vocab, debug_blank=(epoch == 1 and batch_idx == 0)
+                    log_probs, x_lens, vocab, debug_blank=(batch_idx == 0)
                 )
                 for pred, gt in zip(decoded, texts):
                     train_cer_total += _cer(pred, gt)

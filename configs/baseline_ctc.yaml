@@ -3,8 +3,9 @@ input_dim: 126
 hidden_dim: 256
 num_layers: 2
 batch_size: 8
-learning_rate: 0.001
+learning_rate: 0.0003
 epochs: 10
 train_split: 0.9
 model: bilstm_ctc
 notes: baseline keypoints to Thai text using CTC
+blank_bias: 2.0

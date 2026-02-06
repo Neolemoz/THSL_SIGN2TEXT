@@ -39,13 +39,12 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--out",
-        default=os.path.join("reports", "eval_metrics.json"),
-        help="Metrics output path.",
+        default=os.path.join("reports", "eval"),
+        help="Output directory (metrics_eval.json, samples.txt).",
     )
     parser.add_argument(
-        "--samples_out",
-        default=os.path.join("reports", "eval_samples.txt"),
-        help="Samples output path.",
+        "--out_dir",
+        help="Alias for --out.",
     )
     return parser.parse_args()
 
@@ -174,16 +173,24 @@ def main() -> int:
     avg_cer = cer_total / max(1, count)
     avg_wer = wer_total / max(1, count)
 
+    out_dir = args.out_dir or args.out
+    if os.path.splitext(out_dir)[1] in {".json", ".txt"}:
+        out_dir = os.path.dirname(out_dir)
+    if not out_dir:
+        out_dir = "reports"
+    os.makedirs(out_dir, exist_ok=True)
+
+    metrics_path = os.path.join(out_dir, "metrics_eval.json")
+    samples_path = os.path.join(out_dir, "samples.txt")
     metrics = {"cer": avg_cer, "wer": avg_wer, "samples": count}
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
-    with open(args.out, "w", encoding="utf-8") as handle:
+    with open(metrics_path, "w", encoding="utf-8") as handle:
         json.dump(metrics, handle, ensure_ascii=False, indent=2)
-    with open(args.samples_out, "w", encoding="utf-8-sig") as handle:
+    with open(samples_path, "w", encoding="utf-8-sig") as handle:
         handle.write("\n".join(sample_lines))
 
     print(f"CER={avg_cer:.4f} WER={avg_wer:.4f} samples={count}")
-    print(f"Wrote metrics to {args.out}")
-    print(f"Wrote samples to {args.samples_out}")
+    print(f"Wrote metrics to {metrics_path}")
+    print(f"Wrote samples to {samples_path}")
     return 0
 
 
