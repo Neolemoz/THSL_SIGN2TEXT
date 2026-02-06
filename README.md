@@ -16,3 +16,6 @@ ThaiSignVis manifest conversion:
 
 Batch keypoint extraction (quick test):
 `python ml/preprocess/batch_extract.py --limit 10`
+
+Baseline training (quick run):
+`python ml/train.py --manifest data/manifest/manifest.jsonl --kp_dir data/processed/keypoints --out_dir reports/run1 --epochs 3`
