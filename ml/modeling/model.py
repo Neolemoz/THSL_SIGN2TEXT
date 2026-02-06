@@ -43,13 +43,14 @@ class BiLSTMCTC(nn.Module):
         x = self.proj(x)
         x = x.transpose(1, 2)
         x = self.pool(x)
+        x = self.pool(x)
         x = x.transpose(1, 2)
-        down_lengths = torch.ceil(lengths.float() / 2.0).long()
+        down_lengths = torch.ceil(lengths.float() / 4.0).long()
         t_prime = x.shape[1]
         out_lens = torch.clamp(down_lengths, min=1, max=t_prime)
         if not self._debug_logged:
             print(
-                f"Debug: downsampled T'={t_prime} lengths min={out_lens.min().item()} max={out_lens.max().item()}"
+                f"Debug: downsample factor=4 T'={t_prime} lengths min={out_lens.min().item()} max={out_lens.max().item()}"
             )
             print(f"Debug: T'={t_prime} max_out_len={out_lens.max().item()}")
             self._debug_logged = True
