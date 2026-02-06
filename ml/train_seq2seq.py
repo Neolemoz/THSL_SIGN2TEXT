@@ -32,6 +32,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--label_smoothing", type=float, default=0.1)
+    parser.add_argument("--dropout", type=float, default=0.3)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--device", default="cpu")
     return parser.parse_args()
@@ -150,8 +152,12 @@ def main() -> int:
     )
 
     device = torch.device(args.device)
-    model = Seq2SeqModel(input_dim=126, hidden_dim=256, vocab_size=len(vocab)).to(device)
-    criterion = nn.CrossEntropyLoss(ignore_index=vocab.pad_id)
+    model = Seq2SeqModel(
+        input_dim=126, hidden_dim=256, vocab_size=len(vocab), dropout=args.dropout
+    ).to(device)
+    criterion = nn.CrossEntropyLoss(
+        ignore_index=vocab.pad_id, label_smoothing=args.label_smoothing
+    )
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     os.makedirs(args.out_dir, exist_ok=True)

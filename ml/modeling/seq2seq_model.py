@@ -50,17 +50,19 @@ class Seq2SeqEncoder(nn.Module):
 
 
 class AttentionDecoder(nn.Module):
-    def __init__(self, vocab_size: int, hidden_dim: int, enc_dim: int) -> None:
+    def __init__(self, vocab_size: int, hidden_dim: int, enc_dim: int, dropout: float) -> None:
         super().__init__()
         self.embedding = nn.Embedding(vocab_size, hidden_dim)
+        self.embed_dropout = nn.Dropout(dropout)
         self.attn_proj = nn.Linear(enc_dim, hidden_dim, bias=False)
         self.gru = nn.GRU(
             hidden_dim + enc_dim,
             hidden_dim,
             num_layers=2,
             batch_first=True,
-            dropout=0.1,
+            dropout=dropout if dropout > 0 else 0.0,
         )
+        self.out_dropout = nn.Dropout(dropout)
         self.out = nn.Linear(hidden_dim + enc_dim, vocab_size)
 
     def forward(
@@ -73,7 +75,7 @@ class AttentionDecoder(nn.Module):
         batch_size, max_t, enc_dim = encoder_out.shape
         max_u = decoder_in.shape[1]
         enc_proj = self.attn_proj(encoder_out)
-        embedded = self.embedding(decoder_in)
+        embedded = self.embed_dropout(self.embedding(decoder_in))
 
         outputs = []
         hidden = None
@@ -90,17 +92,19 @@ class AttentionDecoder(nn.Module):
             context = torch.bmm(attn, encoder_out)
             gru_in = torch.cat([emb_t, context], dim=2)
             out_t, hidden = self.gru(gru_in, hidden)
-            logits = self.out(torch.cat([out_t, context], dim=2))
+            combined = torch.cat([out_t, context], dim=2)
+            combined = self.out_dropout(combined)
+            logits = self.out(combined)
             outputs.append(logits)
 
         return torch.cat(outputs, dim=1)
 
 
 class Seq2SeqModel(nn.Module):
-    def __init__(self, input_dim: int, hidden_dim: int, vocab_size: int) -> None:
+    def __init__(self, input_dim: int, hidden_dim: int, vocab_size: int, dropout: float = 0.3) -> None:
         super().__init__()
         self.encoder = Seq2SeqEncoder(input_dim, hidden_dim)
-        self.decoder = AttentionDecoder(vocab_size, hidden_dim, hidden_dim * 2)
+        self.decoder = AttentionDecoder(vocab_size, hidden_dim, hidden_dim * 2, dropout=dropout)
 
     def forward(
         self,

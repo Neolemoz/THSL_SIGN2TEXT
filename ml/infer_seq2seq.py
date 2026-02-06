@@ -28,6 +28,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--id", help="Sample id from manifest.")
     parser.add_argument("--npz", help="Direct path to keypoints NPZ.")
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--beam_size", type=int, default=1)
+    parser.add_argument("--max_len", type=int, default=80)
+    parser.add_argument("--len_penalty", type=float, default=0.6)
     return parser.parse_args()
 
 
@@ -74,6 +77,71 @@ def _greedy_decode(
     return outputs
 
 
+def _beam_search_single(
+    decoder,
+    enc_out: torch.Tensor,
+    enc_lens: torch.Tensor,
+    vocab: Vocab,
+    beam_size: int,
+    max_len: int,
+    len_penalty: float,
+) -> str:
+    device = enc_out.device
+    hyps: List[tuple[List[int], float, bool]] = [([vocab.bos_id], 0.0, False)]
+
+    for _ in range(max_len):
+        candidates: List[tuple[List[int], float, bool]] = []
+        for tokens, score, finished in hyps:
+            if finished:
+                candidates.append((tokens, score, True))
+                continue
+            y = torch.tensor(tokens, device=device).unsqueeze(0)
+            logits = decoder(enc_out, enc_lens, y)
+            log_probs = torch.log_softmax(logits[0, -1], dim=-1)
+            topk = torch.topk(log_probs, beam_size)
+            for idx, lp in zip(topk.indices.tolist(), topk.values.tolist()):
+                new_tokens = tokens + [idx]
+                candidates.append((new_tokens, score + lp, idx == vocab.eos_id))
+
+        def rank(item: tuple[List[int], float, bool]) -> float:
+            tokens, score, _ = item
+            length = max(1, len(tokens) - 1)
+            return score / (length ** len_penalty)
+
+        hyps = sorted(candidates, key=rank, reverse=True)[:beam_size]
+        if all(done for _, _, done in hyps):
+            break
+
+    best = max(hyps, key=lambda item: item[1] / (max(1, len(item[0]) - 1) ** len_penalty))
+    return decode_ids(vocab, best[0])
+
+
+def _beam_search_decode(
+    model: Seq2SeqModel,
+    x: torch.Tensor,
+    x_lens: torch.Tensor,
+    vocab: Vocab,
+    beam_size: int,
+    max_len: int,
+    len_penalty: float,
+) -> List[str]:
+    enc_out, enc_lens = model.encoder(x, x_lens)
+    outputs: List[str] = []
+    for i in range(enc_out.shape[0]):
+        outputs.append(
+            _beam_search_single(
+                model.decoder,
+                enc_out[i : i + 1],
+                enc_lens[i : i + 1],
+                vocab,
+                beam_size,
+                max_len,
+                len_penalty,
+            )
+        )
+    return outputs
+
+
 def main() -> int:
     args = _parse_args()
     checkpoint_path = args.checkpoint
@@ -117,7 +185,12 @@ def main() -> int:
     lengths = torch.tensor([keypoints.shape[0]], dtype=torch.long).to(device)
 
     with torch.no_grad():
-        decoded = _greedy_decode(model, x, lengths, vocab, max_len=200)[0]
+        if args.beam_size > 1:
+            decoded = _beam_search_decode(
+                model, x, lengths, vocab, args.beam_size, args.max_len, args.len_penalty
+            )[0]
+        else:
+            decoded = _greedy_decode(model, x, lengths, vocab, max_len=args.max_len)[0]
 
     print(f"NPZ: {npz_path}")
     print(f"Decoded: {decoded}")
