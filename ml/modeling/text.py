@@ -4,6 +4,11 @@ from dataclasses import dataclass
 from typing import Iterable, List
 
 
+PAD_TOKEN = "<pad>"
+BOS_TOKEN = "<bos>"
+EOS_TOKEN = "<eos>"
+
+
 def normalize_text(text: str) -> str:
     text = text.strip()
     if not text:
@@ -20,6 +25,18 @@ class Vocab:
     @property
     def blank_id(self) -> int:
         return 0
+
+    @property
+    def pad_id(self) -> int:
+        return self.char_to_id(PAD_TOKEN)
+
+    @property
+    def bos_id(self) -> int:
+        return self.char_to_id(BOS_TOKEN)
+
+    @property
+    def eos_id(self) -> int:
+        return self.char_to_id(EOS_TOKEN)
 
     def __len__(self) -> int:
         return len(self.chars) + 1
@@ -38,10 +55,13 @@ class Vocab:
             return self.chars[real_idx]
         return ""
 
+    def is_special(self, ch: str) -> bool:
+        return ch in {PAD_TOKEN, BOS_TOKEN, EOS_TOKEN}
+
 
 def build_vocab(texts: Iterable[str]) -> Vocab:
     seen = set()
-    ordered: List[str] = []
+    ordered: List[str] = [PAD_TOKEN, BOS_TOKEN, EOS_TOKEN]
     for text in texts:
         normalized = normalize_text(text)
         for ch in normalized:
@@ -56,5 +76,21 @@ def encode_text(vocab: Vocab, text: str) -> List[int]:
     return [vocab.char_to_id(ch) for ch in normalized if ch]
 
 
+def encode_text_seq2seq(vocab: Vocab, text: str) -> List[int]:
+    normalized = normalize_text(text)
+    tokens = [vocab.bos_id]
+    tokens.extend(vocab.char_to_id(ch) for ch in normalized if ch)
+    tokens.append(vocab.eos_id)
+    return tokens
+
+
 def decode_ids(vocab: Vocab, ids: Iterable[int]) -> str:
-    return "".join(vocab.id_to_char(idx) for idx in ids if idx != vocab.blank_id)
+    chars: List[str] = []
+    for idx in ids:
+        if idx == vocab.blank_id:
+            continue
+        ch = vocab.id_to_char(idx)
+        if not ch or vocab.is_special(ch):
+            continue
+        chars.append(ch)
+    return "".join(chars)

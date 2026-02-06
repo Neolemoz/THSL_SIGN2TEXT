@@ -19,3 +19,7 @@ Batch keypoint extraction (quick test):
 
 Baseline training (quick run):
 `python ml/train.py --manifest data/manifest/manifest.jsonl --kp_dir data/processed/keypoints --out_dir reports/run1 --epochs 3`
+
+Seq2seq baseline (overfit test):
+`python -m ml.train_seq2seq --manifest data/manifest/manifest.jsonl --kp_dir data/processed/keypoints --out_dir reports/overfit_seq2seq --epochs 30 --limit 16`
+`python -m ml.eval_seq2seq --manifest data/manifest/manifest.jsonl --kp_dir data/processed/keypoints --checkpoint reports/overfit_seq2seq/best.pt --out reports/overfit_seq2seq --split train --limit 16`

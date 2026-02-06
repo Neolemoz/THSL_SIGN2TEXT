@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from .text import Vocab, encode_text, normalize_text
+from .text import Vocab, encode_text, encode_text_seq2seq, normalize_text
 
 
 @dataclass(frozen=True)
@@ -112,3 +112,66 @@ def collate_batch(batch: List[dict[str, Any]]) -> Tuple[torch.Tensor, torch.Tens
 
     targets_cat = torch.cat(targets, dim=0) if targets else torch.tensor([], dtype=torch.long)
     return xs, x_lens, targets_cat, y_lens, ids, texts
+
+
+class Seq2SeqDataset(Dataset):
+    def __init__(self, samples: List[Sample], vocab: Vocab) -> None:
+        self.samples = samples
+        self.vocab = vocab
+
+    def __len__(self) -> int:
+        return len(self.samples)
+
+    def __getitem__(self, idx: int) -> dict[str, Any]:
+        sample = self.samples[idx]
+        data = np.load(sample.npz_path, allow_pickle=True)
+        keypoints = data["keypoints"].astype(np.float32)
+        x = torch.from_numpy(keypoints)
+        y_ids = encode_text_seq2seq(self.vocab, sample.text)
+        y = torch.tensor(y_ids, dtype=torch.long)
+        return {
+            "id": sample.sample_id,
+            "x": x,
+            "x_len": x.shape[0],
+            "y": y,
+            "y_len": y.shape[0],
+            "text": sample.text,
+        }
+
+
+def collate_seq2seq(batch: List[dict[str, Any]], pad_id: int) -> Tuple[
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    List[str],
+    List[str],
+]:
+    if not batch:
+        raise ValueError("Empty batch")
+    batch_sorted = sorted(batch, key=lambda item: item["x_len"], reverse=True)
+    max_x = batch_sorted[0]["x_len"]
+    feature_dim = batch_sorted[0]["x"].shape[1]
+    max_y = max(item["y_len"] for item in batch_sorted)
+
+    xs = torch.zeros((len(batch_sorted), max_x, feature_dim), dtype=torch.float32)
+    x_lens = torch.zeros((len(batch_sorted),), dtype=torch.long)
+    y_in = torch.full((len(batch_sorted), max_y - 1), pad_id, dtype=torch.long)
+    y_out = torch.full((len(batch_sorted), max_y - 1), pad_id, dtype=torch.long)
+    ids: List[str] = []
+    texts: List[str] = []
+
+    for i, item in enumerate(batch_sorted):
+        x = item["x"]
+        x_len = item["x_len"]
+        y = item["y"]
+        y_len = item["y_len"]
+        xs[i, :x_len] = x
+        x_lens[i] = x_len
+        if y_len > 1:
+            y_in[i, : y_len - 1] = y[:-1]
+            y_out[i, : y_len - 1] = y[1:]
+        ids.append(item["id"])
+        texts.append(item["text"])
+
+    return xs, x_lens, y_in, y_out, ids, texts

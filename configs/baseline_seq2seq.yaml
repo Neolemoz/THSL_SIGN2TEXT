@@ -1,0 +1,9 @@
+seed: 42
+input_dim: 126
+hidden_dim: 256
+batch_size: 8
+learning_rate: 0.0003
+epochs: 30
+train_split: 0.9
+model: seq2seq_attention
+notes: baseline seq2seq with attention decoder
