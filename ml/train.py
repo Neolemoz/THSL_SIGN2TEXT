@@ -59,9 +59,24 @@ def _split_samples(samples: List, seed: int = 42, val_ratio: float = 0.1) -> Tup
     return train_samples, val_samples
 
 
-def _greedy_decode(log_probs: torch.Tensor, lengths: torch.Tensor, vocab: Vocab) -> List[str]:
+def _greedy_decode(
+    log_probs: torch.Tensor,
+    lengths: torch.Tensor,
+    vocab: Vocab,
+    debug_blank: bool = False,
+) -> List[str]:
     preds = torch.argmax(log_probs, dim=-1)
     decoded: List[str] = []
+    if debug_blank:
+        blank_id = vocab.blank_id
+        total = 0
+        blanks = 0
+        for i in range(preds.shape[0]):
+            seq = preds[i, : lengths[i]].tolist()
+            total += len(seq)
+            blanks += sum(1 for idx in seq if idx == blank_id)
+        blank_ratio = (blanks / total) if total else 0.0
+        print(f"Debug: blank_ratio={blank_ratio:.3f}")
     for i in range(preds.shape[0]):
         seq = preds[i, : lengths[i]].tolist()
         collapsed: List[int] = []
@@ -141,6 +156,7 @@ def main() -> int:
 
     os.makedirs(args.out_dir, exist_ok=True)
     metrics = {"train_loss": [], "val_cer": [], "val_wer": []}
+    debug_logged = False
 
     for epoch in range(1, args.epochs + 1):
         model.train()
@@ -153,6 +169,16 @@ def main() -> int:
 
             log_probs = model(xs, x_lens)
             log_probs_t = log_probs.transpose(0, 1)
+            if not debug_logged:
+                print(f"Debug: log_probs_t shape={tuple(log_probs_t.shape)} (T,N,C)")
+                print(
+                    f"Debug: input_lengths min={x_lens.min().item()} max={x_lens.max().item()}"
+                )
+                print(
+                    f"Debug: target_lengths min={y_lens.min().item()} max={y_lens.max().item()}"
+                )
+                print(f"Debug: blank_id={vocab.blank_id}")
+                debug_logged = True
             loss = criterion(log_probs_t, targets, x_lens, y_lens)
             optimizer.zero_grad()
             loss.backward()
@@ -185,8 +211,25 @@ def main() -> int:
         metrics["val_cer"].append(avg_cer)
         metrics["val_wer"].append(avg_wer)
 
+        train_cer_total = 0.0
+        train_count = 0
+        with torch.no_grad():
+            for batch_idx, (xs, x_lens, _, _, _, texts) in enumerate(train_loader):
+                if batch_idx >= 8:
+                    break
+                xs = xs.to(device)
+                x_lens = x_lens.to(device)
+                log_probs = model(xs, x_lens)
+                decoded = _greedy_decode(
+                    log_probs, x_lens, vocab, debug_blank=(epoch == 1 and batch_idx == 0)
+                )
+                for pred, gt in zip(decoded, texts):
+                    train_cer_total += _cer(pred, gt)
+                    train_count += 1
+        train_cer = train_cer_total / max(1, train_count)
+
         print(
-            f"Epoch {epoch}/{args.epochs} - loss={avg_loss:.4f} val_CER={avg_cer:.4f} val_WER={avg_wer:.4f}"
+            f"Epoch {epoch}/{args.epochs} - loss={avg_loss:.4f} train_CER={train_cer:.4f} val_CER={avg_cer:.4f} val_WER={avg_wer:.4f}"
         )
 
         with open(os.path.join(args.out_dir, "samples.txt"), "w", encoding="utf-8") as handle:

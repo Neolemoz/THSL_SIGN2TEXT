@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
 from typing import List
 
 import torch
@@ -25,18 +26,26 @@ def _parse_args() -> argparse.Namespace:
         default=os.path.join("data", "processed", "keypoints"),
         help="Keypoints directory.",
     )
-    parser.add_argument(
-        "--checkpoint",
-        required=True,
-        help="Checkpoint path.",
-    )
+    parser.add_argument("--checkpoint", help="Checkpoint path.")
+    parser.add_argument("--ckpt", help="Alias for --checkpoint.")
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument(
+        "--split",
+        choices=["train", "val", "all"],
+        default="val",
+        help="Dataset split to evaluate.",
+    )
+    parser.add_argument(
         "--out",
         default=os.path.join("reports", "eval_metrics.json"),
         help="Metrics output path.",
+    )
+    parser.add_argument(
+        "--samples_out",
+        default=os.path.join("reports", "eval_samples.txt"),
+        help="Samples output path.",
     )
     return parser.parse_args()
 
@@ -72,9 +81,24 @@ def _wer(pred: str, gt: str) -> float:
     return _edit_distance(pred_tokens, gt_tokens) / max(1, len(gt_tokens))
 
 
-def _greedy_decode(log_probs: torch.Tensor, lengths: torch.Tensor, vocab: Vocab) -> List[str]:
+def _greedy_decode(
+    log_probs: torch.Tensor,
+    lengths: torch.Tensor,
+    vocab: Vocab,
+    debug_blank: bool = False,
+) -> List[str]:
     preds = torch.argmax(log_probs, dim=-1)
     decoded: List[str] = []
+    if debug_blank:
+        blank_id = vocab.blank_id
+        total = 0
+        blanks = 0
+        for i in range(preds.shape[0]):
+            seq = preds[i, : lengths[i]].tolist()
+            total += len(seq)
+            blanks += sum(1 for idx in seq if idx == blank_id)
+        blank_ratio = (blanks / total) if total else 0.0
+        print(f"Debug: blank_ratio={blank_ratio:.3f}")
     for i in range(preds.shape[0]):
         seq = preds[i, : lengths[i]].tolist()
         collapsed: List[int] = []
@@ -87,19 +111,36 @@ def _greedy_decode(log_probs: torch.Tensor, lengths: torch.Tensor, vocab: Vocab)
     return decoded
 
 
+def _split_samples(samples: List, seed: int = 42, val_ratio: float = 0.1) -> tuple[List, List]:
+    rng = random.Random(seed)
+    indices = list(range(len(samples)))
+    rng.shuffle(indices)
+    val_size = max(1, int(len(samples) * val_ratio)) if samples else 0
+    val_idx = set(indices[:val_size])
+    train_samples = [samples[i] for i in indices if i not in val_idx]
+    val_samples = [samples[i] for i in indices if i in val_idx]
+    return train_samples, val_samples
+
+
 def main() -> int:
     args = _parse_args()
-    if not os.path.exists(args.checkpoint):
-        print(f"ERROR: checkpoint not found: {args.checkpoint}")
+    checkpoint_path = args.checkpoint or args.ckpt
+    if not checkpoint_path or not os.path.exists(checkpoint_path):
+        print(f"ERROR: checkpoint not found: {checkpoint_path}")
         return 1
 
-    ckpt = torch.load(args.checkpoint, map_location="cpu")
+    ckpt = torch.load(checkpoint_path, map_location="cpu")
     vocab = Vocab(chars=ckpt["vocab"])
 
     samples = load_manifest(args.manifest, args.kp_dir, limit=args.limit)
     if not samples:
         print("No samples available for evaluation.")
         return 1
+    train_samples, val_samples = _split_samples(samples, seed=42, val_ratio=0.1)
+    if args.split == "train":
+        samples = train_samples
+    elif args.split == "val":
+        samples = val_samples
 
     dataset = KeypointTextDataset(samples, vocab)
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, collate_fn=collate_batch)
@@ -112,16 +153,23 @@ def main() -> int:
     cer_total = 0.0
     wer_total = 0.0
     count = 0
+    sample_lines: List[str] = []
     with torch.no_grad():
         for xs, x_lens, _, _, _, texts in loader:
             xs = xs.to(device)
             x_lens = x_lens.to(device)
             log_probs = model(xs, x_lens)
-            decoded = _greedy_decode(log_probs, x_lens, vocab)
+            decoded = _greedy_decode(log_probs, x_lens, vocab, debug_blank=(count == 0))
             for pred, gt in zip(decoded, texts):
                 cer_total += _cer(pred, gt)
                 wer_total += _wer(pred, gt)
                 count += 1
+                if len(sample_lines) < 20:
+                    pred_snip = pred[:20]
+                    gt_snip = gt[:20]
+                    sample_lines.append(
+                        f"len_pred={len(pred)} len_gt={len(gt)} pred='{pred_snip}' gt='{gt_snip}'"
+                    )
 
     avg_cer = cer_total / max(1, count)
     avg_wer = wer_total / max(1, count)
@@ -130,9 +178,12 @@ def main() -> int:
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as handle:
         json.dump(metrics, handle, ensure_ascii=False, indent=2)
+    with open(args.samples_out, "w", encoding="utf-8-sig") as handle:
+        handle.write("\n".join(sample_lines))
 
     print(f"CER={avg_cer:.4f} WER={avg_wer:.4f} samples={count}")
     print(f"Wrote metrics to {args.out}")
+    print(f"Wrote samples to {args.samples_out}")
     return 0
 
 
