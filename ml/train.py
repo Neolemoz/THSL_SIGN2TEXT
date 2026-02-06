@@ -113,6 +113,8 @@ def main() -> int:
     if not samples:
         print("No samples available for training.")
         return 1
+    print(f"First GT text: {samples[0].text}")
+    print(f"First GT repr: {samples[0].text!r}")
 
     train_samples, val_samples = _split_samples(samples, seed=42, val_ratio=0.1)
     if not train_samples or not val_samples:
