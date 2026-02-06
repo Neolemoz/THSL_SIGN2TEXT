@@ -30,7 +30,19 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--beam_size", type=int, default=1)
     parser.add_argument("--max_len", type=int, default=80)
-    parser.add_argument("--len_penalty", type=float, default=0.6)
+    parser.add_argument(
+        "--length_penalty",
+        type=float,
+        default=0.0,
+        help="Length normalization factor for beam search.",
+    )
+    parser.add_argument("--len_penalty", type=float, default=None, help="Alias for --length_penalty.")
+    parser.add_argument(
+        "--min_len",
+        type=int,
+        default=1,
+        help="Minimum decoded token length before EOS is allowed.",
+    )
     parser.add_argument("--no_repeat_ngram", type=int, default=2)
     parser.add_argument("--max_repeat_token", type=int, default=3)
     parser.add_argument("--zero_input", action="store_true")
@@ -73,7 +85,13 @@ def _apply_constraints(
     generated: List[int],
     no_repeat_ngram: int,
     max_repeat_token: int,
+    min_len: int,
+    eos_id: int,
 ) -> torch.Tensor:
+    if min_len > 0:
+        current_len = max(0, len(generated) - 1)
+        if current_len < min_len:
+            log_probs[eos_id] = float("-inf")
     if max_repeat_token > 0 and len(generated) >= max_repeat_token:
         last = generated[-1]
         if all(tok == last for tok in generated[-max_repeat_token:]):
@@ -93,6 +111,7 @@ def _greedy_decode(
     max_len: int,
     no_repeat_ngram: int,
     max_repeat_token: int,
+    min_len: int,
 ) -> List[str]:
     device = x.device
     batch = x.shape[0]
@@ -108,7 +127,12 @@ def _greedy_decode(
         for i in range(batch):
             log_probs = torch.log_softmax(logits[i, -1, :], dim=-1)
             log_probs = _apply_constraints(
-                log_probs, histories[i], no_repeat_ngram, max_repeat_token
+                log_probs,
+                histories[i],
+                no_repeat_ngram,
+                max_repeat_token,
+                min_len,
+                vocab.eos_id,
             )
             next_ids.append(int(torch.argmax(log_probs).item()))
         next_ids = torch.tensor(next_ids, device=device)
@@ -131,9 +155,10 @@ def _beam_search_single(
     vocab: Vocab,
     beam_size: int,
     max_len: int,
-    len_penalty: float,
+    length_penalty: float,
     no_repeat_ngram: int,
     max_repeat_token: int,
+    min_len: int,
 ) -> str:
     device = enc_out.device
     hyps: List[tuple[List[int], float, bool]] = [([vocab.bos_id], 0.0, False)]
@@ -148,23 +173,28 @@ def _beam_search_single(
             logits = decoder(enc_out, enc_lens, y)
             log_probs = torch.log_softmax(logits[0, -1], dim=-1)
             log_probs = _apply_constraints(
-                log_probs, tokens, no_repeat_ngram, max_repeat_token
+                log_probs,
+                tokens,
+                no_repeat_ngram,
+                max_repeat_token,
+                min_len,
+                vocab.eos_id,
             )
             topk = torch.topk(log_probs, beam_size)
             for idx, lp in zip(topk.indices.tolist(), topk.values.tolist()):
                 new_tokens = tokens + [idx]
                 candidates.append((new_tokens, score + lp, idx == vocab.eos_id))
 
-        def rank(item: tuple[List[int], float, bool]) -> float:
-            tokens, score, _ = item
-            length = max(1, len(tokens) - 1)
-            return score / (length ** len_penalty)
-
-        hyps = sorted(candidates, key=rank, reverse=True)[:beam_size]
+        hyps = sorted(candidates, key=lambda item: item[1], reverse=True)[:beam_size]
         if all(done for _, _, done in hyps):
             break
 
-    best = max(hyps, key=lambda item: item[1] / (max(1, len(item[0]) - 1) ** len_penalty))
+    def final_score(item: tuple[List[int], float, bool]) -> float:
+        tokens, score, _ = item
+        length = max(1, len(tokens) - 1)
+        return score / (length ** length_penalty) if length_penalty > 0 else score
+
+    best = max(hyps, key=final_score)
     return decode_ids(vocab, best[0])
 
 
@@ -175,9 +205,10 @@ def _beam_search_decode(
     vocab: Vocab,
     beam_size: int,
     max_len: int,
-    len_penalty: float,
+    length_penalty: float,
     no_repeat_ngram: int,
     max_repeat_token: int,
+    min_len: int,
 ) -> List[str]:
     enc_out, enc_lens = model.encoder(x, x_lens)
     outputs: List[str] = []
@@ -190,9 +221,10 @@ def _beam_search_decode(
                 vocab,
                 beam_size,
                 max_len,
-                len_penalty,
+                length_penalty,
                 no_repeat_ngram,
                 max_repeat_token,
+                min_len,
             )
         )
     return outputs
@@ -200,6 +232,8 @@ def _beam_search_decode(
 
 def main() -> int:
     args = _parse_args()
+    if args.len_penalty is not None:
+        args.length_penalty = args.len_penalty
     checkpoint_path = args.checkpoint
     if os.path.isdir(checkpoint_path):
         candidate_best = os.path.join(checkpoint_path, "best.pt")
@@ -252,9 +286,10 @@ def main() -> int:
                 vocab,
                 args.beam_size,
                 args.max_len,
-                args.len_penalty,
+                args.length_penalty,
                 args.no_repeat_ngram,
                 args.max_repeat_token,
+                args.min_len,
             )[0]
         else:
             decoded = _greedy_decode(
@@ -265,6 +300,7 @@ def main() -> int:
                 max_len=args.max_len,
                 no_repeat_ngram=args.no_repeat_ngram,
                 max_repeat_token=args.max_repeat_token,
+                min_len=args.min_len,
             )[0]
 
     print(f"NPZ: {npz_path}")
