@@ -10,3 +10,6 @@ Next step: run `ml/preprocess/extract_keypoints.py` on your videos.
 
 Example (video file):
 `python ml/preprocess/extract_keypoints.py --input path\to\video.mp4 --out reports\sample_keypoints.npz`
+
+ThaiSignVis manifest conversion:
+`python tools/convert_thaisignvis_to_manifest.py --root data\raw\thaisignvis --out data\manifest\manifest.jsonl --qc_out reports\thaisignvis_qc.json`
