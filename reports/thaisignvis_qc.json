@@ -1,0 +1,11 @@
+{
+  "samples_written": 208,
+  "windows_found": 1,
+  "skipped_empty_text": 0,
+  "skipped_bad_time": 0,
+  "skipped_missing_video": 0,
+  "avg_duration": 6.977105769230765,
+  "avg_text_len": 30.802884615384617,
+  "min_duration": 2.12,
+  "max_duration": 11.439
+}

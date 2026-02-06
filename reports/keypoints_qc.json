@@ -1,0 +1,500 @@
+{
+  "total_samples": 208,
+  "processed_ok": 198,
+  "failed": 0,
+  "avg_frames": 211.06060606060606,
+  "avg_missing_left": 0.04238118599619367,
+  "avg_missing_right": 0.05556424093208961,
+  "samples": [
+    {
+      "id": "TSV_0_000010",
+      "frames": 223,
+      "missing_left": 0.026905829596412557,
+      "missing_right": 0.008968609865470852,
+      "out_path": "data/processed/keypoints/TSV_0_000010.npz"
+    },
+    {
+      "id": "TSV_0_000011",
+      "frames": 191,
+      "missing_left": 0.010471204188481676,
+      "missing_right": 0.0,
+      "out_path": "data/processed/keypoints/TSV_0_000011.npz"
+    },
+    {
+      "id": "TSV_0_000012",
+      "frames": 169,
+      "missing_left": 0.05325443786982249,
+      "missing_right": 0.029585798816568046,
+      "out_path": "data/processed/keypoints/TSV_0_000012.npz"
+    },
+    {
+      "id": "TSV_0_000013",
+      "frames": 232,
+      "missing_left": 0.09051724137931035,
+      "missing_right": 0.03879310344827586,
+      "out_path": "data/processed/keypoints/TSV_0_000013.npz"
+    },
+    {
+      "id": "TSV_0_000014",
+      "frames": 227,
+      "missing_left": 0.06607929515418502,
+      "missing_right": 0.01762114537444934,
+      "out_path": "data/processed/keypoints/TSV_0_000014.npz"
+    },
+    {
+      "id": "TSV_0_000015",
+      "frames": 203,
+      "missing_left": 0.019704433497536946,
+      "missing_right": 0.0049261083743842365,
+      "out_path": "data/processed/keypoints/TSV_0_000015.npz"
+    },
+    {
+      "id": "TSV_0_000016",
+      "frames": 213,
+      "missing_left": 0.046948356807511735,
+      "missing_right": 0.004694835680751174,
+      "out_path": "data/processed/keypoints/TSV_0_000016.npz"
+    },
+    {
+      "id": "TSV_0_000017",
+      "frames": 169,
+      "missing_left": 0.04142011834319527,
+      "missing_right": 0.011834319526627219,
+      "out_path": "data/processed/keypoints/TSV_0_000017.npz"
+    },
+    {
+      "id": "TSV_0_000018",
+      "frames": 138,
+      "missing_left": 0.0,
+      "missing_right": 0.0,
+      "out_path": "data/processed/keypoints/TSV_0_000018.npz"
+    },
+    {
+      "id": "TSV_0_000019",
+      "frames": 188,
+      "missing_left": 0.0,
+      "missing_right": 0.11170212765957446,
+      "out_path": "data/processed/keypoints/TSV_0_000019.npz"
+    },
+    {
+      "id": "TSV_0_000020",
+      "frames": 279,
+      "missing_left": 0.014336917562724014,
+      "missing_right": 0.08960573476702509,
+      "out_path": "data/processed/keypoints/TSV_0_000020.npz"
+    },
+    {
+      "id": "TSV_0_000021",
+      "frames": 282,
+      "missing_left": 0.02127659574468085,
+      "missing_right": 0.010638297872340425,
+      "out_path": "data/processed/keypoints/TSV_0_000021.npz"
+    },
+    {
+      "id": "TSV_0_000022",
+      "frames": 235,
+      "missing_left": 0.00851063829787234,
+      "missing_right": 0.01702127659574468,
+      "out_path": "data/processed/keypoints/TSV_0_000022.npz"
+    },
+    {
+      "id": "TSV_0_000023",
+      "frames": 149,
+      "missing_left": 0.006711409395973154,
+      "missing_right": 0.013422818791946308,
+      "out_path": "data/processed/keypoints/TSV_0_000023.npz"
+    },
+    {
+      "id": "TSV_0_000024",
+      "frames": 186,
+      "missing_left": 0.026881720430107527,
+      "missing_right": 0.0,
+      "out_path": "data/processed/keypoints/TSV_0_000024.npz"
+    },
+    {
+      "id": "TSV_0_000025",
+      "frames": 261,
+      "missing_left": 0.011494252873563218,
+      "missing_right": 0.0038314176245210726,
+      "out_path": "data/processed/keypoints/TSV_0_000025.npz"
+    },
+    {
+      "id": "TSV_0_000026",
+      "frames": 243,
+      "missing_left": 0.012345679012345678,
+      "missing_right": 0.01646090534979424,
+      "out_path": "data/processed/keypoints/TSV_0_000026.npz"
+    },
+    {
+      "id": "TSV_0_000027",
+      "frames": 241,
+      "missing_left": 0.04979253112033195,
+      "missing_right": 0.07468879668049792,
+      "out_path": "data/processed/keypoints/TSV_0_000027.npz"
+    },
+    {
+      "id": "TSV_0_000028",
+      "frames": 204,
+      "missing_left": 0.08823529411764706,
+      "missing_right": 0.0784313725490196,
+      "out_path": "data/processed/keypoints/TSV_0_000028.npz"
+    },
+    {
+      "id": "TSV_0_000029",
+      "frames": 183,
+      "missing_left": 0.1092896174863388,
+      "missing_right": 0.01639344262295082,
+      "out_path": "data/processed/keypoints/TSV_0_000029.npz"
+    },
+    {
+      "id": "TSV_0_000030",
+      "frames": 205,
+      "missing_left": 0.07317073170731707,
+      "missing_right": 0.004878048780487805,
+      "out_path": "data/processed/keypoints/TSV_0_000030.npz"
+    },
+    {
+      "id": "TSV_0_000031",
+      "frames": 222,
+      "missing_left": 0.04954954954954955,
+      "missing_right": 0.0,
+      "out_path": "data/processed/keypoints/TSV_0_000031.npz"
+    },
+    {
+      "id": "TSV_0_000032",
+      "frames": 232,
+      "missing_left": 0.09482758620689655,
+      "missing_right": 0.017241379310344827,
+      "out_path": "data/processed/keypoints/TSV_0_000032.npz"
+    },
+    {
+      "id": "TSV_0_000033",
+      "frames": 236,
+      "missing_left": 0.07627118644067797,
+      "missing_right": 0.0211864406779661,
+      "out_path": "data/processed/keypoints/TSV_0_000033.npz"
+    },
+    {
+      "id": "TSV_0_000034",
+      "frames": 253,
+      "missing_left": 0.03557312252964427,
+      "missing_right": 0.007905138339920948,
+      "out_path": "data/processed/keypoints/TSV_0_000034.npz"
+    },
+    {
+      "id": "TSV_0_000035",
+      "frames": 281,
+      "missing_left": 0.017793594306049824,
+      "missing_right": 0.0035587188612099642,
+      "out_path": "data/processed/keypoints/TSV_0_000035.npz"
+    },
+    {
+      "id": "TSV_0_000036",
+      "frames": 229,
+      "missing_left": 0.013100436681222707,
+      "missing_right": 0.004366812227074236,
+      "out_path": "data/processed/keypoints/TSV_0_000036.npz"
+    },
+    {
+      "id": "TSV_0_000037",
+      "frames": 189,
+      "missing_left": 0.026455026455026454,
+      "missing_right": 0.0,
+      "out_path": "data/processed/keypoints/TSV_0_000037.npz"
+    },
+    {
+      "id": "TSV_0_000038",
+      "frames": 211,
+      "missing_left": 0.023696682464454975,
+      "missing_right": 0.08530805687203792,
+      "out_path": "data/processed/keypoints/TSV_0_000038.npz"
+    },
+    {
+      "id": "TSV_0_000039",
+      "frames": 249,
+      "missing_left": 0.020080321285140562,
+      "missing_right": 0.08032128514056225,
+      "out_path": "data/processed/keypoints/TSV_0_000039.npz"
+    },
+    {
+      "id": "TSV_0_000040",
+      "frames": 300,
+      "missing_left": 0.05,
+      "missing_right": 0.04,
+      "out_path": "data/processed/keypoints/TSV_0_000040.npz"
+    },
+    {
+      "id": "TSV_0_000041",
+      "frames": 321,
+      "missing_left": 0.021806853582554516,
+      "missing_right": 0.037383177570093455,
+      "out_path": "data/processed/keypoints/TSV_0_000041.npz"
+    },
+    {
+      "id": "TSV_0_000042",
+      "frames": 158,
+      "missing_left": 0.0,
+      "missing_right": 0.006329113924050633,
+      "out_path": "data/processed/keypoints/TSV_0_000042.npz"
+    },
+    {
+      "id": "TSV_0_000043",
+      "frames": 300,
+      "missing_left": 0.023333333333333334,
+      "missing_right": 0.01,
+      "out_path": "data/processed/keypoints/TSV_0_000043.npz"
+    },
+    {
+      "id": "TSV_0_000044",
+      "frames": 308,
+      "missing_left": 0.006493506493506494,
+      "missing_right": 0.016233766233766232,
+      "out_path": "data/processed/keypoints/TSV_0_000044.npz"
+    },
+    {
+      "id": "TSV_0_000045",
+      "frames": 313,
+      "missing_left": 0.022364217252396165,
+      "missing_right": 0.009584664536741214,
+      "out_path": "data/processed/keypoints/TSV_0_000045.npz"
+    },
+    {
+      "id": "TSV_0_000046",
+      "frames": 149,
+      "missing_left": 0.026845637583892617,
+      "missing_right": 0.006711409395973154,
+      "out_path": "data/processed/keypoints/TSV_0_000046.npz"
+    },
+    {
+      "id": "TSV_0_000047",
+      "frames": 202,
+      "missing_left": 0.024752475247524754,
+      "missing_right": 0.0,
+      "out_path": "data/processed/keypoints/TSV_0_000047.npz"
+    },
+    {
+      "id": "TSV_0_000048",
+      "frames": 281,
+      "missing_left": 0.021352313167259787,
+      "missing_right": 0.0,
+      "out_path": "data/processed/keypoints/TSV_0_000048.npz"
+    },
+    {
+      "id": "TSV_0_000049",
+      "frames": 339,
+      "missing_left": 0.032448377581120944,
+      "missing_right": 0.0,
+      "out_path": "data/processed/keypoints/TSV_0_000049.npz"
+    },
+    {
+      "id": "TSV_0_000050",
+      "frames": 227,
+      "missing_left": 0.004405286343612335,
+      "missing_right": 0.022026431718061675,
+      "out_path": "data/processed/keypoints/TSV_0_000050.npz"
+    },
+    {
+      "id": "TSV_0_000051",
+      "frames": 161,
+      "missing_left": 0.0,
+      "missing_right": 0.12422360248447205,
+      "out_path": "data/processed/keypoints/TSV_0_000051.npz"
+    },
+    {
+      "id": "TSV_0_000052",
+      "frames": 160,
+      "missing_left": 0.0,
+      "missing_right": 0.14375,
+      "out_path": "data/processed/keypoints/TSV_0_000052.npz"
+    },
+    {
+      "id": "TSV_0_000053",
+      "frames": 232,
+      "missing_left": 0.01293103448275862,
+      "missing_right": 0.04741379310344827,
+      "out_path": "data/processed/keypoints/TSV_0_000053.npz"
+    },
+    {
+      "id": "TSV_0_000054",
+      "frames": 172,
+      "missing_left": 0.01744186046511628,
+      "missing_right": 0.0,
+      "out_path": "data/processed/keypoints/TSV_0_000054.npz"
+    },
+    {
+      "id": "TSV_0_000055",
+      "frames": 191,
+      "missing_left": 0.041884816753926704,
+      "missing_right": 0.06282722513089005,
+      "out_path": "data/processed/keypoints/TSV_0_000055.npz"
+    },
+    {
+      "id": "TSV_0_000056",
+      "frames": 250,
+      "missing_left": 0.012,
+      "missing_right": 0.064,
+      "out_path": "data/processed/keypoints/TSV_0_000056.npz"
+    },
+    {
+      "id": "TSV_0_000057",
+      "frames": 203,
+      "missing_left": 0.0,
+      "missing_right": 0.0049261083743842365,
+      "out_path": "data/processed/keypoints/TSV_0_000057.npz"
+    },
+    {
+      "id": "TSV_0_000058",
+      "frames": 259,
+      "missing_left": 0.2972972972972973,
+      "missing_right": 0.0,
+      "out_path": "data/processed/keypoints/TSV_0_000058.npz"
+    },
+    {
+      "id": "TSV_0_000059",
+      "frames": 261,
+      "missing_left": 0.24904214559386972,
+      "missing_right": 0.011494252873563218,
+      "out_path": "data/processed/keypoints/TSV_0_000059.npz"
+    },
+    {
+      "id": "TSV_0_000135",
+      "frames": 91,
+      "missing_left": 0.0,
+      "missing_right": 1.0,
+      "out_path": "data/processed/keypoints/TSV_0_000135.npz"
+    },
+    {
+      "id": "TSV_0_000138",
+      "frames": 140,
+      "missing_left": 0.22142857142857142,
+      "missing_right": 1.0,
+      "out_path": "data/processed/keypoints/TSV_0_000138.npz"
+    },
+    {
+      "id": "TSV_0_000139",
+      "frames": 117,
+      "missing_left": 0.1282051282051282,
+      "missing_right": 1.0,
+      "out_path": "data/processed/keypoints/TSV_0_000139.npz"
+    },
+    {
+      "id": "TSV_0_000140",
+      "frames": 105,
+      "missing_left": 0.2,
+      "missing_right": 0.7619047619047619,
+      "out_path": "data/processed/keypoints/TSV_0_000140.npz"
+    },
+    {
+      "id": "TSV_0_000137",
+      "frames": 91,
+      "missing_left": 0.17582417582417584,
+      "missing_right": 0.5604395604395604,
+      "out_path": "data/processed/keypoints/TSV_0_000137.npz"
+    },
+    {
+      "id": "TSV_0_000136",
+      "frames": 161,
+      "missing_left": 0.34782608695652173,
+      "missing_right": 0.39751552795031053,
+      "out_path": "data/processed/keypoints/TSV_0_000136.npz"
+    },
+    {
+      "id": "TSV_0_000157",
+      "frames": 221,
+      "missing_left": 0.167420814479638,
+      "missing_right": 0.37104072398190047,
+      "out_path": "data/processed/keypoints/TSV_0_000157.npz"
+    },
+    {
+      "id": "TSV_0_000195",
+      "frames": 206,
+      "missing_left": 0.009708737864077669,
+      "missing_right": 0.3640776699029126,
+      "out_path": "data/processed/keypoints/TSV_0_000195.npz"
+    },
+    {
+      "id": "TSV_0_000158",
+      "frames": 220,
+      "missing_left": 0.17272727272727273,
+      "missing_right": 0.35,
+      "out_path": "data/processed/keypoints/TSV_0_000158.npz"
+    },
+    {
+      "id": "TSV_0_000147",
+      "frames": 175,
+      "missing_left": 0.3314285714285714,
+      "missing_right": 0.0,
+      "out_path": "data/processed/keypoints/TSV_0_000147.npz"
+    },
+    {
+      "id": "TSV_0_000148",
+      "frames": 195,
+      "missing_left": 0.31794871794871793,
+      "missing_right": 0.005128205128205128,
+      "out_path": "data/processed/keypoints/TSV_0_000148.npz"
+    },
+    {
+      "id": "TSV_0_000198",
+      "frames": 221,
+      "missing_left": 0.2081447963800905,
+      "missing_right": 0.2986425339366516,
+      "out_path": "data/processed/keypoints/TSV_0_000198.npz"
+    },
+    {
+      "id": "TSV_0_000058",
+      "frames": 259,
+      "missing_left": 0.2972972972972973,
+      "missing_right": 0.0,
+      "out_path": "data/processed/keypoints/TSV_0_000058.npz"
+    },
+    {
+      "id": "TSV_0_000100",
+      "frames": 250,
+      "missing_left": 0.296,
+      "missing_right": 0.0,
+      "out_path": "data/processed/keypoints/TSV_0_000100.npz"
+    },
+    {
+      "id": "TSV_0_000141",
+      "frames": 235,
+      "missing_left": 0.04680851063829787,
+      "missing_right": 0.26382978723404255,
+      "out_path": "data/processed/keypoints/TSV_0_000141.npz"
+    },
+    {
+      "id": "TSV_0_000059",
+      "frames": 261,
+      "missing_left": 0.24904214559386972,
+      "missing_right": 0.011494252873563218,
+      "out_path": "data/processed/keypoints/TSV_0_000059.npz"
+    },
+    {
+      "id": "TSV_0_000101",
+      "frames": 200,
+      "missing_left": 0.245,
+      "missing_right": 0.01,
+      "out_path": "data/processed/keypoints/TSV_0_000101.npz"
+    },
+    {
+      "id": "TSV_0_000133",
+      "frames": 247,
+      "missing_left": 0.1862348178137652,
+      "missing_right": 0.22267206477732793,
+      "out_path": "data/processed/keypoints/TSV_0_000133.npz"
+    },
+    {
+      "id": "TSV_0_000119",
+      "frames": 231,
+      "missing_left": 0.18614718614718614,
+      "missing_right": 0.008658008658008658,
+      "out_path": "data/processed/keypoints/TSV_0_000119.npz"
+    },
+    {
+      "id": "TSV_0_000155",
+      "frames": 242,
+      "missing_left": 0.03305785123966942,
+      "missing_right": 0.1859504132231405,
+      "out_path": "data/processed/keypoints/TSV_0_000155.npz"
+    }
+  ]
+}
