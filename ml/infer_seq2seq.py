@@ -31,6 +31,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--beam_size", type=int, default=1)
     parser.add_argument("--max_len", type=int, default=80)
     parser.add_argument("--len_penalty", type=float, default=0.6)
+    parser.add_argument("--zero_input", action="store_true")
     return parser.parse_args()
 
 
@@ -182,6 +183,9 @@ def main() -> int:
     model.eval()
 
     x = torch.from_numpy(keypoints).unsqueeze(0).to(device)
+    if args.zero_input:
+        print("DEBUG: zero_input=ON")
+        x = torch.zeros_like(x)
     lengths = torch.tensor([keypoints.shape[0]], dtype=torch.long).to(device)
 
     with torch.no_grad():

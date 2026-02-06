@@ -33,6 +33,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--beam_size", type=int, default=1)
     parser.add_argument("--max_len", type=int, default=80)
     parser.add_argument("--len_penalty", type=float, default=0.6)
+    parser.add_argument("--zero_input", action="store_true")
     parser.add_argument(
         "--split",
         choices=["train", "val", "all"],
@@ -231,6 +232,9 @@ def main() -> int:
         for xs, x_lens, y_in, y_out, ids, texts in loader:
             xs = xs.to(device)
             x_lens = x_lens.to(device)
+            if args.zero_input:
+                print("DEBUG: zero_input=ON")
+                xs = torch.zeros_like(xs)
             if args.beam_size > 1:
                 preds = _beam_search_decode(
                     model, xs, x_lens, vocab, args.beam_size, args.max_len, args.len_penalty
