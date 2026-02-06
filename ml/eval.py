@@ -157,8 +157,8 @@ def main() -> int:
         for xs, x_lens, _, _, _, texts in loader:
             xs = xs.to(device)
             x_lens = x_lens.to(device)
-            log_probs = model(xs, x_lens)
-            decoded = _greedy_decode(log_probs, x_lens, vocab, debug_blank=(count == 0))
+            log_probs, out_lens = model(xs, x_lens)
+            decoded = _greedy_decode(log_probs, out_lens, vocab, debug_blank=(count == 0))
             for pred, gt in zip(decoded, texts):
                 cer_total += _cer(pred, gt)
                 wer_total += _wer(pred, gt)

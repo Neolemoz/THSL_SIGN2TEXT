@@ -36,7 +36,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--lr", type=float, default=3e-4)
-    parser.add_argument("--blank_bias", type=float, default=0.5)
+    parser.add_argument("--blank_bias", type=float, default=0.0)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--device", default="cpu")
     return parser.parse_args()
@@ -187,7 +187,7 @@ def main() -> int:
             targets = targets.to(device)
             y_lens = y_lens.to(device)
 
-            log_probs = model(xs, x_lens)
+            log_probs, out_lens = model(xs, x_lens)
             log_probs_t = log_probs.transpose(0, 1)
             if not debug_logged:
                 print(f"Debug: log_probs_t shape={tuple(log_probs_t.shape)} (T,N,C)")
@@ -199,7 +199,7 @@ def main() -> int:
                 )
                 print(f"Debug: blank_id={vocab.blank_id}")
                 debug_logged = True
-            loss = criterion(log_probs_t, targets, x_lens, y_lens)
+            loss = criterion(log_probs_t, targets, out_lens, y_lens)
             optimizer.zero_grad()
             loss.backward()
             step_count += 1
@@ -221,8 +221,8 @@ def main() -> int:
             for xs, x_lens, _, _, ids, texts in val_loader:
                 xs = xs.to(device)
                 x_lens = x_lens.to(device)
-                log_probs = model(xs, x_lens)
-                decoded = _greedy_decode(log_probs, x_lens, vocab)
+                log_probs, out_lens = model(xs, x_lens)
+                decoded = _greedy_decode(log_probs, out_lens, vocab)
                 for sample_id, pred, gt in zip(ids, decoded, texts):
                     cer_total += _cer(pred, gt)
                     wer_total += _wer(pred, gt)
@@ -244,10 +244,10 @@ def main() -> int:
                     break
                 xs = xs.to(device)
                 x_lens = x_lens.to(device)
-                log_probs = model(xs, x_lens)
-                blank_ratios.append(_blank_ratio(log_probs, x_lens, vocab.blank_id))
+                log_probs, out_lens = model(xs, x_lens)
+                blank_ratios.append(_blank_ratio(log_probs, out_lens, vocab.blank_id))
                 decoded = _greedy_decode(
-                    log_probs, x_lens, vocab, debug_blank=(batch_idx == 0)
+                    log_probs, out_lens, vocab, debug_blank=(batch_idx == 0)
                 )
                 for pred, gt in zip(decoded, texts):
                     train_cer_total += _cer(pred, gt)

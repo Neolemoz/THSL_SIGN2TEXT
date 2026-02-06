@@ -100,8 +100,8 @@ def main() -> int:
     lengths = torch.tensor([keypoints.shape[0]], dtype=torch.long).to(device)
 
     with torch.no_grad():
-        log_probs = model(x, lengths)
-        decoded = _greedy_decode(log_probs, lengths, vocab)[0]
+        log_probs, out_lens = model(x, lengths)
+        decoded = _greedy_decode(log_probs, out_lens, vocab)[0]
 
     print(f"NPZ: {npz_path}")
     print(f"Decoded: {decoded}")
