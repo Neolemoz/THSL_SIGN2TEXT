@@ -34,6 +34,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--label_smoothing", type=float, default=0.1)
     parser.add_argument("--dropout", type=float, default=0.3)
+    parser.add_argument("--tf_start", type=float, default=1.0)
+    parser.add_argument("--tf_end", type=float, default=0.5)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--device", default="cpu")
     return parser.parse_args()
@@ -166,6 +168,11 @@ def main() -> int:
     best_epoch = None
 
     for epoch in range(1, args.epochs + 1):
+        if args.epochs > 1:
+            ratio = (epoch - 1) / (args.epochs - 1)
+        else:
+            ratio = 1.0
+        tf_ratio = args.tf_start + (args.tf_end - args.tf_start) * ratio
         model.train()
         total_loss = 0.0
         for xs, x_lens, y_in, y_out, _, _ in train_loader:
@@ -174,7 +181,24 @@ def main() -> int:
             y_in = y_in.to(device)
             y_out = y_out.to(device)
 
-            logits, _ = model(xs, x_lens, y_in)
+            if tf_ratio >= 0.999:
+                logits, _ = model(xs, x_lens, y_in)
+            else:
+                enc_out, enc_lens = model.encoder(xs, x_lens)
+                batch_size, max_u = y_in.shape
+                y_tokens = y_in[:, :1]
+                step_logits = []
+                for t in range(max_u):
+                    logits_t = model.decoder(enc_out, enc_lens, y_tokens)
+                    last_logits = logits_t[:, -1, :]
+                    step_logits.append(last_logits)
+                    if t + 1 < max_u:
+                        use_gt = torch.rand(batch_size, device=device) < tf_ratio
+                        pred_next = torch.argmax(last_logits, dim=-1)
+                        gt_next = y_in[:, t + 1]
+                        next_token = torch.where(use_gt, gt_next, pred_next)
+                        y_tokens = torch.cat([y_tokens, next_token.unsqueeze(1)], dim=1)
+                logits = torch.stack(step_logits, dim=1)
             loss = criterion(logits.reshape(-1, logits.size(-1)), y_out.reshape(-1))
             optimizer.zero_grad()
             loss.backward()
@@ -215,7 +239,8 @@ def main() -> int:
             torch.save(best_ckpt, os.path.join(args.out_dir, "best.pt"))
 
         print(
-            f"Epoch {epoch}/{args.epochs} - loss={avg_loss:.4f} val_CER={avg_cer:.4f} val_WER={avg_wer:.4f} {'*best*' if improved else ''}"
+            f"Epoch {epoch}/{args.epochs} - loss={avg_loss:.4f} val_CER={avg_cer:.4f} "
+            f"val_WER={avg_wer:.4f} tf_ratio={tf_ratio:.3f} {'*best*' if improved else ''}"
         )
 
         with open(os.path.join(args.out_dir, "samples.txt"), "w", encoding="utf-8-sig") as handle:
