@@ -124,7 +124,20 @@ def _split_samples(samples: List, seed: int = 42, val_ratio: float = 0.1) -> tup
 def main() -> int:
     args = _parse_args()
     checkpoint_path = args.checkpoint or args.ckpt
-    if not checkpoint_path or not os.path.exists(checkpoint_path):
+    if not checkpoint_path:
+        print("ERROR: checkpoint not provided.")
+        return 1
+    if os.path.isdir(checkpoint_path):
+        candidate_best = os.path.join(checkpoint_path, "best.pt")
+        candidate_last = os.path.join(checkpoint_path, "checkpoint.pt")
+        if os.path.exists(candidate_best):
+            checkpoint_path = candidate_best
+        elif os.path.exists(candidate_last):
+            checkpoint_path = candidate_last
+        else:
+            print(f"ERROR: no checkpoint found in directory: {checkpoint_path}")
+            return 1
+    if not os.path.exists(checkpoint_path):
         print(f"ERROR: checkpoint not found: {checkpoint_path}")
         return 1
 

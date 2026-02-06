@@ -177,8 +177,17 @@ def main() -> int:
     step_count = 0
 
     os.makedirs(args.out_dir, exist_ok=True)
-    metrics = {"train_loss": [], "val_cer": [], "val_wer": []}
+    metrics = {
+        "train_loss": [],
+        "val_cer": [],
+        "val_wer": [],
+        "best_epoch": None,
+        "best_val_cer": None,
+    }
     debug_logged = False
+    best_val_cer = None
+    best_epoch = None
+    blank_streak = 0
 
     for epoch in range(1, args.epochs + 1):
         model.train()
@@ -268,9 +277,29 @@ def main() -> int:
                 f"Warning: blank_ratio={avg_blank_ratio:.3f} suggests tuning --blank_bias"
             )
 
+        improved = best_val_cer is None or avg_cer < best_val_cer
+        if improved:
+            best_val_cer = avg_cer
+            best_epoch = epoch
+            best_ckpt = {
+                "model_state": model.state_dict(),
+                "vocab": vocab.chars,
+            }
+            torch.save(best_ckpt, os.path.join(args.out_dir, "best.pt"))
+
         print(
-            f"Epoch {epoch}/{args.epochs} - loss={avg_loss:.4f} train_CER={train_cer:.4f} val_CER={avg_cer:.4f} val_WER={avg_wer:.4f} blank_ratio={avg_blank_ratio:.3f} blank_bias={scheduled_blank_bias:.3f}"
+            f"Epoch {epoch}/{args.epochs} - loss={avg_loss:.4f} train_CER={train_cer:.4f} "
+            f"val_CER={avg_cer:.4f} blank_ratio={avg_blank_ratio:.3f} "
+            f"blank_bias={scheduled_blank_bias:.3f} {'*best*' if improved else ''}"
         )
+
+        if avg_blank_ratio > 0.98:
+            blank_streak += 1
+        else:
+            blank_streak = 0
+        if blank_streak >= 2:
+            print("Warning: blank_ratio > 0.98 for 2 epochs; stopping early.")
+            break
 
         with open(os.path.join(args.out_dir, "samples.txt"), "w", encoding="utf-8") as handle:
             handle.write("\n".join(sample_lines))
@@ -280,6 +309,8 @@ def main() -> int:
         "vocab": vocab.chars,
     }
     torch.save(ckpt, os.path.join(args.out_dir, "checkpoint.pt"))
+    metrics["best_epoch"] = best_epoch
+    metrics["best_val_cer"] = best_val_cer
     with open(os.path.join(args.out_dir, "metrics.json"), "w", encoding="utf-8") as handle:
         json.dump(metrics, handle, ensure_ascii=False, indent=2)
 
