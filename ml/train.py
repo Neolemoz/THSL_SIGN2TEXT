@@ -37,6 +37,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--blank_bias", type=float, default=0.0)
+    parser.add_argument("--blank_bias_start", type=float, default=1.0)
+    parser.add_argument("--blank_bias_end", type=float, default=0.0)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--device", default="cpu")
     return parser.parse_args()
@@ -180,6 +182,13 @@ def main() -> int:
 
     for epoch in range(1, args.epochs + 1):
         model.train()
+        if args.epochs > 1:
+            ratio = (epoch - 1) / (args.epochs - 1)
+        else:
+            ratio = 1.0
+        scheduled_blank_bias = args.blank_bias_start + (
+            args.blank_bias_end - args.blank_bias_start
+        ) * ratio
         total_loss = 0.0
         for xs, x_lens, targets, y_lens, _, _ in train_loader:
             xs = xs.to(device)
@@ -187,7 +196,7 @@ def main() -> int:
             targets = targets.to(device)
             y_lens = y_lens.to(device)
 
-            log_probs, out_lens = model(xs, x_lens)
+            log_probs, out_lens = model(xs, x_lens, blank_bias=scheduled_blank_bias)
             log_probs_t = log_probs.transpose(0, 1)
             if not debug_logged:
                 print(f"Debug: log_probs_t shape={tuple(log_probs_t.shape)} (T,N,C)")
@@ -221,7 +230,7 @@ def main() -> int:
             for xs, x_lens, _, _, ids, texts in val_loader:
                 xs = xs.to(device)
                 x_lens = x_lens.to(device)
-                log_probs, out_lens = model(xs, x_lens)
+                log_probs, out_lens = model(xs, x_lens, blank_bias=0.0)
                 decoded = _greedy_decode(log_probs, out_lens, vocab)
                 for sample_id, pred, gt in zip(ids, decoded, texts):
                     cer_total += _cer(pred, gt)
@@ -244,7 +253,7 @@ def main() -> int:
                     break
                 xs = xs.to(device)
                 x_lens = x_lens.to(device)
-                log_probs, out_lens = model(xs, x_lens)
+                log_probs, out_lens = model(xs, x_lens, blank_bias=0.0)
                 blank_ratios.append(_blank_ratio(log_probs, out_lens, vocab.blank_id))
                 decoded = _greedy_decode(
                     log_probs, out_lens, vocab, debug_blank=(batch_idx == 0)
@@ -260,7 +269,7 @@ def main() -> int:
             )
 
         print(
-            f"Epoch {epoch}/{args.epochs} - loss={avg_loss:.4f} train_CER={train_cer:.4f} val_CER={avg_cer:.4f} val_WER={avg_wer:.4f} blank_ratio={avg_blank_ratio:.3f}"
+            f"Epoch {epoch}/{args.epochs} - loss={avg_loss:.4f} train_CER={train_cer:.4f} val_CER={avg_cer:.4f} val_WER={avg_wer:.4f} blank_ratio={avg_blank_ratio:.3f} blank_bias={scheduled_blank_bias:.3f}"
         )
 
         with open(os.path.join(args.out_dir, "samples.txt"), "w", encoding="utf-8") as handle:

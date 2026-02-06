@@ -34,7 +34,12 @@ class BiLSTMCTC(nn.Module):
         self.classifier = nn.Linear(hidden_dim * 2, vocab_size)
         self._debug_logged = False
 
-    def forward(self, x: torch.Tensor, lengths: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self,
+        x: torch.Tensor,
+        lengths: torch.Tensor,
+        blank_bias: float = 0.0,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         x = self.proj(x)
         x = x.transpose(1, 2)
         x = self.pool(x)
@@ -55,7 +60,7 @@ class BiLSTMCTC(nn.Module):
         packed_out, _ = self.lstm(packed)
         out, _ = nn.utils.rnn.pad_packed_sequence(packed_out, batch_first=True)
         logits = self.classifier(out)
-        if self.training and self.blank_bias:
-            logits[..., 0] -= float(self.blank_bias)
+        if blank_bias:
+            logits[..., 0] -= float(blank_bias)
         log_probs = torch.log_softmax(logits, dim=-1)
         return log_probs, out_lens
