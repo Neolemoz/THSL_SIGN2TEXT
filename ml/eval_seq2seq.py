@@ -283,6 +283,8 @@ def main() -> int:
     wer_total = 0.0
     count = 0
     sample_lines: List[str] = []
+    processed = 0
+    requested_limit = args.limit
     with torch.no_grad():
         for xs, x_lens, y_in, y_out, ids, texts in loader:
             xs = xs.to(device)
@@ -308,11 +310,15 @@ def main() -> int:
                     model, xs, x_lens, vocab, max_len, args.no_repeat_ngram, args.max_repeat_token
                 )
             for sample_id, pred, gt in zip(ids, preds, texts):
+                if requested_limit is not None and processed >= requested_limit:
+                    break
                 cer_total += _cer(pred, gt)
                 wer_total += _wer(pred, gt)
                 count += 1
-                if len(sample_lines) < 20:
-                    sample_lines.append(f"{sample_id}\tPRED: {pred}\tGT: {gt}")
+                processed += 1
+                sample_lines.append(f"{sample_id}\tPRED: {pred}\tGT: {gt}")
+            if requested_limit is not None and processed >= requested_limit:
+                break
 
     avg_cer = cer_total / max(1, count)
     avg_wer = wer_total / max(1, count)
@@ -328,6 +334,7 @@ def main() -> int:
     print(f"CER={avg_cer:.4f} WER={avg_wer:.4f} samples={count}")
     print(f"Wrote metrics to {metrics_path}")
     print(f"Wrote samples to {samples_path}")
+    print(f"EVAL: requested_limit={requested_limit} processed={processed} wrote={processed}")
     return 0
 
 
