@@ -6,6 +6,7 @@ import os
 import random
 import sys
 from collections import Counter
+from shutil import copyfile
 from typing import List, Tuple
 
 import numpy as np
@@ -61,6 +62,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--best_alpha", type=float, default=0.30)
     parser.add_argument("--best_beta", type=float, default=0.20)
     parser.add_argument("--best_decode_limit", type=int, default=20)
+    parser.add_argument("--gate_top1", type=float, default=0.60)
+    parser.add_argument("--gate_unique", type=float, default=0.20)
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
 
@@ -237,6 +240,8 @@ def main() -> int:
         "best_score": None,
     }
     best_val_cer = None
+    best_cer_epoch = None
+    best_cer_ckpt_path = os.path.join(args.out_dir, "cer_best.pt")
     best_score = None
     best_epoch = None
 
@@ -328,9 +333,16 @@ def main() -> int:
         top1_ratio = (top1_count / total_count) if total_count > 0 else 0.0
         score = avg_cer + args.best_alpha * (1.0 - unique_ratio) + args.best_beta * top1_ratio
 
-        improved = best_score is None or score < best_score
-        if improved:
+        if best_val_cer is None or avg_cer < best_val_cer:
             best_val_cer = avg_cer
+            best_cer_epoch = epoch
+            best_cer_ckpt = {"model_state": model.state_dict(), "vocab": vocab.chars}
+            torch.save(best_cer_ckpt, best_cer_ckpt_path)
+
+        passed_gate = top1_ratio < args.gate_top1 and unique_ratio > args.gate_unique
+        status = "PASS" if passed_gate else "REJECT_COLLAPSE"
+        improved = passed_gate and (best_score is None or score < best_score)
+        if improved:
             best_score = score
             best_epoch = epoch
             best_ckpt = {"model_state": model.state_dict(), "vocab": vocab.chars}
@@ -338,7 +350,9 @@ def main() -> int:
 
         print(
             f"Epoch {epoch}: CER={avg_cer:.4f} unique={unique_count}/{total_count} "
-            f"top1_count={top1_count} score={score:.4f} {'*best*' if improved else ''}"
+            f"(ratio={unique_ratio:.3f}) top1={top1_count}/{total_count} "
+            f"(ratio={top1_ratio:.3f}) score={score:.4f} status={status} "
+            f"{'*best*' if improved else ''}"
         )
 
         with open(os.path.join(args.out_dir, "samples.txt"), "w", encoding="utf-8-sig") as handle:
@@ -346,6 +360,15 @@ def main() -> int:
 
     ckpt = {"model_state": model.state_dict(), "vocab": vocab.chars}
     torch.save(ckpt, os.path.join(args.out_dir, "checkpoint.pt"))
+    selection_mode = "PASS_SCORE"
+    if best_score is None:
+        selection_mode = "FALLBACK_CER_ONLY"
+        if os.path.exists(best_cer_ckpt_path):
+            copyfile(best_cer_ckpt_path, os.path.join(args.out_dir, "best.pt"))
+        best_epoch = best_cer_epoch
+        print("FALLBACK_CER_ONLY: no epoch passed gate; using lowest CER checkpoint")
+    print(f"Best selection mode: {selection_mode}")
+
     metrics["best_epoch"] = best_epoch
     metrics["best_val_cer"] = best_val_cer
     metrics["best_score"] = best_score
