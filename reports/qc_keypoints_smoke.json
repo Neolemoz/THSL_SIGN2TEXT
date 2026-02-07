@@ -1,0 +1,35 @@
+{
+  "total": 20,
+  "present": 20,
+  "missing_npz": 0,
+  "ok": 20,
+  "failed_quality": 0,
+  "frames": {
+    "min": 134.0,
+    "mean": 195.0,
+    "max": 250.0
+  },
+  "missing_left": {
+    "min": 0.0,
+    "mean": 0.07625209740305651,
+    "max": 0.6631578947368421
+  },
+  "missing_right": {
+    "min": 0.0,
+    "mean": 0.06045111902791789,
+    "max": 0.6368421052631579
+  },
+  "zero_frame_ratio": {
+    "min": 0.0,
+    "mean": 0.04433071029155996,
+    "max": 0.6368421052631579
+  },
+  "thresholds": {
+    "min_frames": 10,
+    "max_missing_left": 0.8,
+    "max_missing_right": 0.8,
+    "max_zero_frame_ratio": 0.9,
+    "expected_dim": 126
+  },
+  "failures": []
+}

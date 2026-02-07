@@ -7,7 +7,7 @@ import random
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import List, Tuple
+from typing import Any, List, Tuple
 
 import torch
 from torch.utils.data import DataLoader
@@ -80,6 +80,14 @@ def _split_samples(samples: List, seed: int = 42, val_ratio: float = 0.1) -> Tup
     train_samples = [samples[i] for i in indices if i not in val_idx]
     val_samples = [samples[i] for i in indices if i in val_idx]
     return train_samples, val_samples
+
+
+def _ensure_text(value: Any) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if value is None:
+        return ""
+    return str(value)
 
 
 def _count_missing_npz(manifest_path: str, kp_dir: str) -> tuple[int, int]:
@@ -405,12 +413,14 @@ def main() -> int:
                     if requested_limit is not None and processed >= requested_limit:
                         exit_reason = "limit_reached"
                         break
-                    cer_total += _cer(pred, gt)
-                    wer_total += _wer(pred, gt)
+                    pred_text = _ensure_text(pred)
+                    gt_text = _ensure_text(gt)
+                    cer_total += _cer(pred_text, gt_text)
+                    wer_total += _wer(pred_text, gt_text)
                     count += 1
                     processed += 1
-                    sample_lines.append(f"{sample_id}\t{pred}\t{gt}")
-                    pred_texts.append(pred)
+                    sample_lines.append(f"{sample_id}\t{pred_text}\t{gt_text}")
+                    pred_texts.append(pred_text)
                 if requested_limit is not None and processed >= requested_limit:
                     exit_reason = "limit_reached"
                     break
@@ -432,7 +442,7 @@ def main() -> int:
     if top5:
         top1_pred, top1_count = top5[0]
     top1_ratio = (top1_count / total_count) if total_count > 0 else 0.0
-    with open(metrics_path, "w", encoding="utf-8") as handle:
+    with open(metrics_path, "w", encoding="utf-8-sig") as handle:
         json.dump(
             {
                 "cer": avg_cer,

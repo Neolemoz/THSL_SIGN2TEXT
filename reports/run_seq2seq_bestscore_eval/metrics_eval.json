@@ -1,0 +1,16 @@
+{
+  "cer": 0.8398254619094402,
+  "wer": 1.0,
+  "samples": 20,
+  "unique_count": 1,
+  "unique_ratio": 0.05,
+  "top1_pred": "กระทู้ถาม",
+  "top1_count": 20,
+  "top1_ratio": 1.0,
+  "top5_preds": [
+    [
+      "กระทู้ถาม",
+      20
+    ]
+  ]
+}

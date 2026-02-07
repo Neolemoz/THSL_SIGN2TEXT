@@ -31,6 +31,12 @@ def _parse_args() -> argparse.Namespace:
         default=Path("reports") / "keypoints_qc.json",
         help="Output QC JSON path.",
     )
+    parser.add_argument(
+        "--skip_missing_npz",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="If true, missing_npz are excluded from failed_quality and failed_samples.txt.",
+    )
     parser.add_argument("--min_frames", type=int, default=10)
     parser.add_argument("--max_missing_left", type=float, default=0.8)
     parser.add_argument("--max_missing_right", type=float, default=0.8)
@@ -99,7 +105,9 @@ def main() -> int:
     missing_right_list: list[float] = []
     zero_frame_list: list[float] = []
     failures: list[dict[str, Any]] = []
-    processed = 0
+    quality_failures: list[dict[str, Any]] = []
+    present = 0
+    missing_npz = 0
 
     for sample in samples:
         sample_id = sample.get("id")
@@ -109,7 +117,9 @@ def main() -> int:
         npz_path = kp_dir / f"{sample_id}.npz"
         if not npz_path.exists():
             failures.append({"id": sample_id, "reason": "missing_npz"})
+            missing_npz += 1
             continue
+        present += 1
         try:
             data = np.load(npz_path, allow_pickle=True)
         except Exception as exc:
@@ -134,7 +144,6 @@ def main() -> int:
         missing_left_list.append(missing_left)
         missing_right_list.append(missing_right)
         zero_frame_list.append(zero_frame_ratio)
-        processed += 1
 
         fail_reasons: list[str] = []
         if frames < args.min_frames:
@@ -148,23 +157,27 @@ def main() -> int:
         if feature_dim != args.expected_dim:
             fail_reasons.append("feature_dim_mismatch")
         if fail_reasons:
-            failures.append(
-                {
-                    "id": sample_id,
-                    "reason": ",".join(fail_reasons),
-                    "frames": frames,
-                    "missing_left": missing_left,
-                    "missing_right": missing_right,
-                    "zero_frame_ratio": zero_frame_ratio,
-                    "feature_dim": feature_dim,
-                }
-            )
-
-    ok_count = len(samples) - len(failures)
+            failure = {
+                "id": sample_id,
+                "reason": ",".join(fail_reasons),
+                "frames": frames,
+                "missing_left": missing_left,
+                "missing_right": missing_right,
+                "zero_frame_ratio": zero_frame_ratio,
+                "feature_dim": feature_dim,
+            }
+            failures.append(failure)
+            quality_failures.append(failure)
+    failed_quality = len(quality_failures)
+    if not args.skip_missing_npz:
+        failed_quality += missing_npz
+    ok_count = present - len(quality_failures)
     qc = {
         "total": len(samples),
-        "processed": processed,
-        "failed": len(failures),
+        "present": present,
+        "missing_npz": missing_npz,
+        "ok": ok_count,
+        "failed_quality": failed_quality,
         "frames": _stats([float(v) for v in frames_list]),
         "missing_left": _stats(missing_left_list),
         "missing_right": _stats(missing_right_list),
@@ -184,8 +197,12 @@ def main() -> int:
 
     failed_list_path = out_path.parent / "failed_samples.txt"
     with failed_list_path.open("w", encoding="utf-8") as handle:
-        for fail in failures:
-            handle.write(f"{fail.get('id', '')}\t{fail.get('reason', '')}\n")
+        if args.skip_missing_npz:
+            for fail in quality_failures:
+                handle.write(f"{fail.get('id', '')}\t{fail.get('reason', '')}\n")
+        else:
+            for fail in failures:
+                handle.write(f"{fail.get('id', '')}\t{fail.get('reason', '')}\n")
 
     avg_frames = qc["frames"]["mean"]
     avg_missing_left = qc["missing_left"]["mean"]
@@ -193,8 +210,10 @@ def main() -> int:
     print(
         "QC:",
         f"total={len(samples)}",
+        f"present={present}",
+        f"missing_npz={missing_npz}",
         f"ok={ok_count}",
-        f"failed={len(failures)}",
+        f"failed_quality={failed_quality}",
         f"avg_frames={avg_frames:.2f}",
         f"avg_missing_left={avg_missing_left:.3f}",
         f"avg_missing_right={avg_missing_right:.3f}",
