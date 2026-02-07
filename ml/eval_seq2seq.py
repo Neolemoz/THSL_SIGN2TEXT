@@ -402,6 +402,7 @@ def main() -> int:
     top1_pred, top1_count = ("", 0)
     if top5:
         top1_pred, top1_count = top5[0]
+    top1_ratio = (top1_count / total_count) if total_count > 0 else 0.0
     with open(metrics_path, "w", encoding="utf-8") as handle:
         json.dump(
             {
@@ -410,6 +411,9 @@ def main() -> int:
                 "samples": count,
                 "unique_count": unique_count,
                 "unique_ratio": unique_ratio,
+                "top1_pred": top1_pred,
+                "top1_count": top1_count,
+                "top1_ratio": top1_ratio,
                 "top5_preds": top5,
             },
             handle,

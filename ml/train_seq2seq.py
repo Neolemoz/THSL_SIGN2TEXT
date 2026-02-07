@@ -5,6 +5,7 @@ import json
 import os
 import random
 import sys
+from collections import Counter
 from typing import List, Tuple
 
 import numpy as np
@@ -57,6 +58,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--time_mask_max_ratio", type=float, default=0.20)
     parser.add_argument("--time_mask_num", type=int, default=2)
     parser.add_argument("--freq_penalty", type=float, default=0.0)
+    parser.add_argument("--best_alpha", type=float, default=0.30)
+    parser.add_argument("--best_beta", type=float, default=0.20)
+    parser.add_argument("--best_decode_limit", type=int, default=20)
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
 
@@ -224,20 +228,19 @@ def main() -> int:
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     os.makedirs(args.out_dir, exist_ok=True)
-    metrics = {"train_loss": [], "val_cer": [], "val_wer": [], "best_epoch": None, "best_val_cer": None}
+    metrics = {
+        "train_loss": [],
+        "val_cer": [],
+        "val_wer": [],
+        "best_epoch": None,
+        "best_val_cer": None,
+        "best_score": None,
+    }
     best_val_cer = None
+    best_score = None
     best_epoch = None
 
     for epoch in range(1, args.epochs + 1):
-        print(
-            f"Epoch {epoch}/{args.epochs} augment:",
-            f"feature_dropout={augment_config.feature_dropout:.3f}",
-            f"frame_dropout={augment_config.frame_dropout:.3f}",
-            f"input_noise_std={augment_config.input_noise_std:.3f}",
-            f"time_mask_prob={augment_config.time_mask_prob:.3f}",
-            f"time_mask_max_ratio={augment_config.time_mask_max_ratio:.3f}",
-            f"time_mask_num={augment_config.time_mask_num}",
-        )
         if args.epochs > 1:
             ratio = (epoch - 1) / (args.epochs - 1)
         else:
@@ -294,6 +297,8 @@ def main() -> int:
         wer_total = 0.0
         count = 0
         sample_lines: List[str] = []
+        pred_texts: List[str] = []
+        decode_limit = max(0, args.best_decode_limit)
         with torch.no_grad():
             for xs, x_lens, y_in, y_out, _time_mask_ratios, ids, texts in val_loader:
                 xs = xs.to(device)
@@ -306,23 +311,34 @@ def main() -> int:
                     count += 1
                     if len(sample_lines) < 20:
                         sample_lines.append(f"{sample_id}\tPRED: {pred}\tGT: {gt}")
+                    if decode_limit > 0 and len(pred_texts) < decode_limit:
+                        pred_texts.append(pred)
 
         avg_cer = cer_total / max(1, count)
         avg_wer = wer_total / max(1, count)
         metrics["val_cer"].append(avg_cer)
         metrics["val_wer"].append(avg_wer)
 
-        improved = best_val_cer is None or avg_cer < best_val_cer
+        unique_count = len(set(pred_texts))
+        total_count = len(pred_texts)
+        unique_ratio = (unique_count / total_count) if total_count > 0 else 0.0
+        top1_pred, top1_count = ("", 0)
+        if pred_texts:
+            top1_pred, top1_count = Counter(pred_texts).most_common(1)[0]
+        top1_ratio = (top1_count / total_count) if total_count > 0 else 0.0
+        score = avg_cer + args.best_alpha * (1.0 - unique_ratio) + args.best_beta * top1_ratio
+
+        improved = best_score is None or score < best_score
         if improved:
             best_val_cer = avg_cer
+            best_score = score
             best_epoch = epoch
             best_ckpt = {"model_state": model.state_dict(), "vocab": vocab.chars}
             torch.save(best_ckpt, os.path.join(args.out_dir, "best.pt"))
 
         print(
-            f"Epoch {epoch}/{args.epochs} - loss={avg_loss:.4f} val_CER={avg_cer:.4f} "
-            f"val_WER={avg_wer:.4f} tf_ratio={tf_ratio:.3f} "
-            f"time_mask_ratio={avg_time_mask_ratio:.4f} {'*best*' if improved else ''}"
+            f"Epoch {epoch}: CER={avg_cer:.4f} unique={unique_count}/{total_count} "
+            f"top1_count={top1_count} score={score:.4f} {'*best*' if improved else ''}"
         )
 
         with open(os.path.join(args.out_dir, "samples.txt"), "w", encoding="utf-8-sig") as handle:
@@ -332,6 +348,7 @@ def main() -> int:
     torch.save(ckpt, os.path.join(args.out_dir, "checkpoint.pt"))
     metrics["best_epoch"] = best_epoch
     metrics["best_val_cer"] = best_val_cer
+    metrics["best_score"] = best_score
     with open(os.path.join(args.out_dir, "metrics.json"), "w", encoding="utf-8") as handle:
         json.dump(metrics, handle, ensure_ascii=False, indent=2)
 
