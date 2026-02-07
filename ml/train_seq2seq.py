@@ -11,7 +11,12 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
-from ml.modeling.dataset import Seq2SeqDataset, collate_seq2seq, load_manifest
+from ml.modeling.dataset import (
+    KeypointAugmentConfig,
+    Seq2SeqDataset,
+    collate_seq2seq,
+    load_manifest,
+)
 from ml.modeling.seq2seq_model import Seq2SeqModel
 from ml.modeling.text import Vocab, build_vocab, decode_ids
 
@@ -38,6 +43,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--tf_end", type=float, default=0.5)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--feature_dropout", type=float, default=0.10)
+    parser.add_argument("--frame_dropout", type=float, default=0.05)
+    parser.add_argument("--input_noise_std", type=float, default=0.01)
+    parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
 
 
@@ -46,6 +55,8 @@ def _set_seed(seed: int = 42) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
 def _split_samples(samples: List, seed: int = 42, val_ratio: float = 0.1) -> Tuple[List, List]:
@@ -120,7 +131,20 @@ def _greedy_decode(
 
 def main() -> int:
     args = _parse_args()
-    _set_seed(42)
+    _set_seed(args.seed)
+
+    augment_config = KeypointAugmentConfig(
+        feature_dropout=args.feature_dropout,
+        frame_dropout=args.frame_dropout,
+        input_noise_std=args.input_noise_std,
+    )
+    print(
+        "Augment config (train only):",
+        f"feature_dropout={augment_config.feature_dropout:.3f}",
+        f"frame_dropout={augment_config.frame_dropout:.3f}",
+        f"input_noise_std={augment_config.input_noise_std:.3f}",
+        f"seed={args.seed}",
+    )
 
     samples = load_manifest(args.manifest, args.kp_dir, limit=args.limit)
     if not samples:
@@ -129,7 +153,7 @@ def main() -> int:
     print(f"First GT text: {samples[0].text}")
     print(f"First GT repr: {samples[0].text!r}")
 
-    train_samples, val_samples = _split_samples(samples, seed=42, val_ratio=0.1)
+    train_samples, val_samples = _split_samples(samples, seed=args.seed, val_ratio=0.1)
     if not train_samples or not val_samples:
         print("Not enough data after split.")
         return 1
@@ -137,14 +161,19 @@ def main() -> int:
     vocab = build_vocab(sample.text for sample in train_samples)
     print(f"Vocab size (incl blank): {len(vocab)}")
 
-    train_ds = Seq2SeqDataset(train_samples, vocab)
+    augment_rng = torch.Generator()
+    augment_rng.manual_seed(args.seed + 1)
+    train_ds = Seq2SeqDataset(train_samples, vocab, augment_config, augment_rng)
     val_ds = Seq2SeqDataset(val_samples, vocab)
 
+    train_gen = torch.Generator()
+    train_gen.manual_seed(args.seed)
     train_loader = DataLoader(
         train_ds,
         batch_size=args.batch_size,
         shuffle=True,
         collate_fn=lambda batch: collate_seq2seq(batch, vocab.pad_id),
+        generator=train_gen,
     )
     val_loader = DataLoader(
         val_ds,
@@ -168,6 +197,12 @@ def main() -> int:
     best_epoch = None
 
     for epoch in range(1, args.epochs + 1):
+        print(
+            f"Epoch {epoch}/{args.epochs} augment:",
+            f"feature_dropout={augment_config.feature_dropout:.3f}",
+            f"frame_dropout={augment_config.frame_dropout:.3f}",
+            f"input_noise_std={augment_config.input_noise_std:.3f}",
+        )
         if args.epochs > 1:
             ratio = (epoch - 1) / (args.epochs - 1)
         else:

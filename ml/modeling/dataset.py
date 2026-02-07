@@ -19,6 +19,48 @@ class Sample:
     npz_path: str
 
 
+@dataclass(frozen=True)
+class KeypointAugmentConfig:
+    feature_dropout: float = 0.0
+    frame_dropout: float = 0.0
+    input_noise_std: float = 0.0
+
+
+def _apply_keypoint_augment(
+    x: torch.Tensor,
+    rng: torch.Generator,
+    config: KeypointAugmentConfig,
+) -> torch.Tensor:
+    if (
+        config.feature_dropout <= 0.0
+        and config.frame_dropout <= 0.0
+        and config.input_noise_std <= 0.0
+    ):
+        return x
+    if x.numel() == 0:
+        return x
+
+    x = x.clone()
+    if config.feature_dropout > 0.0 and x.shape[1] > 0:
+        feature_mask = torch.rand(x.shape[1], generator=rng) < config.feature_dropout
+        if feature_mask.any().item():
+            x[:, feature_mask] = 0.0
+
+    if config.frame_dropout > 0.0 and x.shape[0] > 0:
+        frame_mask = torch.rand(x.shape[0], generator=rng) < config.frame_dropout
+        if frame_mask.any().item():
+            x[frame_mask] = 0.0
+
+    if config.input_noise_std > 0.0:
+        nonzero = x != 0
+        if nonzero.any().item():
+            noise = torch.randn(
+                x.shape, generator=rng, device=x.device, dtype=x.dtype
+            ) * config.input_noise_std
+            x = x + noise * nonzero
+    return x
+
+
 def load_manifest(
     manifest_path: str,
     kp_dir: str,
@@ -62,9 +104,20 @@ def load_manifest(
 
 
 class KeypointTextDataset(Dataset):
-    def __init__(self, samples: List[Sample], vocab: Vocab) -> None:
+    def __init__(
+        self,
+        samples: List[Sample],
+        vocab: Vocab,
+        augment_config: KeypointAugmentConfig | None = None,
+        augment_rng: torch.Generator | None = None,
+    ) -> None:
         self.samples = samples
         self.vocab = vocab
+        self.augment_config = augment_config
+        if augment_config is not None and augment_rng is None:
+            augment_rng = torch.Generator()
+            augment_rng.manual_seed(torch.initial_seed())
+        self.augment_rng = augment_rng
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -74,6 +127,8 @@ class KeypointTextDataset(Dataset):
         data = np.load(sample.npz_path, allow_pickle=True)
         keypoints = data["keypoints"].astype(np.float32)
         x = torch.from_numpy(keypoints)
+        if self.augment_config is not None and self.augment_rng is not None:
+            x = _apply_keypoint_augment(x, self.augment_rng, self.augment_config)
         y_ids = encode_text(self.vocab, sample.text)
         y = torch.tensor(y_ids, dtype=torch.long)
         return {
@@ -115,9 +170,20 @@ def collate_batch(batch: List[dict[str, Any]]) -> Tuple[torch.Tensor, torch.Tens
 
 
 class Seq2SeqDataset(Dataset):
-    def __init__(self, samples: List[Sample], vocab: Vocab) -> None:
+    def __init__(
+        self,
+        samples: List[Sample],
+        vocab: Vocab,
+        augment_config: KeypointAugmentConfig | None = None,
+        augment_rng: torch.Generator | None = None,
+    ) -> None:
         self.samples = samples
         self.vocab = vocab
+        self.augment_config = augment_config
+        if augment_config is not None and augment_rng is None:
+            augment_rng = torch.Generator()
+            augment_rng.manual_seed(torch.initial_seed())
+        self.augment_rng = augment_rng
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -127,6 +193,8 @@ class Seq2SeqDataset(Dataset):
         data = np.load(sample.npz_path, allow_pickle=True)
         keypoints = data["keypoints"].astype(np.float32)
         x = torch.from_numpy(keypoints)
+        if self.augment_config is not None and self.augment_rng is not None:
+            x = _apply_keypoint_augment(x, self.augment_rng, self.augment_config)
         y_ids = encode_text_seq2seq(self.vocab, sample.text)
         y = torch.tensor(y_ids, dtype=torch.long)
         return {
