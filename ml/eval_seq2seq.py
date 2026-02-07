@@ -6,6 +6,7 @@ import os
 import random
 import sys
 from collections import Counter
+from pathlib import Path
 from typing import List, Tuple
 
 import torch
@@ -79,6 +80,31 @@ def _split_samples(samples: List, seed: int = 42, val_ratio: float = 0.1) -> Tup
     train_samples = [samples[i] for i in indices if i not in val_idx]
     val_samples = [samples[i] for i in indices if i in val_idx]
     return train_samples, val_samples
+
+
+def _count_missing_npz(manifest_path: str, kp_dir: str) -> tuple[int, int]:
+    total = 0
+    missing = 0
+    manifest = Path(manifest_path)
+    if not manifest.exists():
+        return total, missing
+    with manifest.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            sample_id = record.get("id")
+            if not sample_id:
+                continue
+            total += 1
+            npz_path = Path(kp_dir) / f"{sample_id}.npz"
+            if not npz_path.exists():
+                missing += 1
+    return total, missing
 
 
 def _edit_distance(a: List[str], b: List[str]) -> int:
@@ -304,6 +330,9 @@ def main() -> int:
         print("No samples available for evaluation.")
         return 1
     print(f"DEBUG: loaded_samples={len(samples)}")
+    manifest_total, missing_npz = _count_missing_npz(args.manifest, args.kp_dir)
+    if missing_npz:
+        print(f"WARNING: missing_npz={missing_npz} in manifest_total={manifest_total}")
 
     train_samples, val_samples = _split_samples(samples, seed=42, val_ratio=0.1)
     print(f"DEBUG: split_sizes train={len(train_samples)} val={len(val_samples)}")
@@ -380,7 +409,7 @@ def main() -> int:
                     wer_total += _wer(pred, gt)
                     count += 1
                     processed += 1
-                    sample_lines.append(f"{sample_id}\tPRED: {pred}\tGT: {gt}")
+                    sample_lines.append(f"{sample_id}\t{pred}\t{gt}")
                     pred_texts.append(pred)
                 if requested_limit is not None and processed >= requested_limit:
                     exit_reason = "limit_reached"
@@ -409,6 +438,8 @@ def main() -> int:
                 "cer": avg_cer,
                 "wer": avg_wer,
                 "samples": count,
+                "manifest_total": manifest_total,
+                "missing_npz": missing_npz,
                 "unique_count": unique_count,
                 "unique_ratio": unique_ratio,
                 "top1_pred": top1_pred,

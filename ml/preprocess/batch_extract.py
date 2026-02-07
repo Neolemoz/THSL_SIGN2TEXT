@@ -1,68 +1,60 @@
+from __future__ import annotations
+
 import argparse
 import json
 import math
-import os
 import sys
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from pathlib import Path
 from typing import Any
 
 import cv2
 import mediapipe as mp
 import numpy as np
-from tqdm import tqdm
 
 
 FEATURE_DIM = 21 * 3 * 2
+HAND_DIM = 21 * 3
 
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Batch extract MediaPipe Holistic hand keypoints from a manifest."
+        description="Batch extract MediaPipe hand keypoints from a manifest."
     )
     parser.add_argument(
         "--manifest",
-        default=os.path.join("data", "manifest", "manifest.jsonl"),
+        default=Path("data") / "manifest" / "manifest.jsonl",
         help="Path to manifest.jsonl.",
     )
     parser.add_argument(
         "--out_dir",
-        default=os.path.join("data", "processed", "keypoints"),
+        default=Path("data") / "processed" / "keypoints",
         help="Output directory for per-sample NPZ files.",
     )
-    parser.add_argument(
-        "--qc_out",
-        default=os.path.join("reports", "keypoints_qc.json"),
-        help="QC report output path.",
-    )
+    parser.add_argument("--overwrite", action="store_true", help="Overwrite existing NPZ files.")
     parser.add_argument("--limit", type=int, default=None, help="Process only N samples.")
-    parser.add_argument(
-        "--resize_width",
-        type=int,
-        default=None,
-        help="Optional resize width (keeps aspect ratio).",
-    )
-    parser.add_argument(
-        "--overwrite",
-        action="store_true",
-        help="Overwrite existing NPZ files.",
-    )
+    parser.add_argument("--workers", type=int, default=1, help="Parallel workers (default 1).")
     return parser.parse_args()
 
 
-def _ensure_parent_dir(path: str) -> None:
-    parent = os.path.dirname(path)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
+def _read_manifest(path: Path, limit: int | None) -> list[dict[str, Any]]:
+    samples: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            samples.append(json.loads(line))
+            if limit and len(samples) >= limit:
+                break
+    return samples
 
 
-def _resize_frame(frame: np.ndarray, resize_width: int | None) -> np.ndarray:
-    if not resize_width:
-        return frame
-    height, width = frame.shape[:2]
-    if width == resize_width:
-        return frame
-    scale = resize_width / float(width)
-    new_height = int(round(height * scale))
-    return cv2.resize(frame, (resize_width, new_height), interpolation=cv2.INTER_AREA)
+def _safe_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _hand_landmarks_to_vec(hand_landmarks) -> np.ndarray:
@@ -78,193 +70,261 @@ def _hand_landmarks_to_vec(hand_landmarks) -> np.ndarray:
     return coords
 
 
-def _safe_float(value: Any) -> float | None:
+def _validate_npz(path: Path) -> tuple[bool, str]:
     try:
-        return float(value)
-    except (TypeError, ValueError):
+        data = np.load(path, allow_pickle=True)
+    except Exception as exc:
+        return False, f"load_error:{exc}"
+    if "keypoints" not in data:
+        return False, "missing_keypoints"
+    keypoints = data["keypoints"]
+    if keypoints.dtype != np.float32:
+        return False, f"bad_dtype:{keypoints.dtype}"
+    if keypoints.ndim != 2 or keypoints.shape[1] != FEATURE_DIM:
+        return False, f"bad_shape:{keypoints.shape}"
+    return True, "ok"
+
+
+def _backup_existing(path: Path) -> Path | None:
+    if not path.exists():
         return None
+    candidate = path.with_suffix(path.suffix + ".bak")
+    index = 1
+    while candidate.exists():
+        candidate = path.with_suffix(path.suffix + f".bak{index}")
+        index += 1
+    candidate.write_bytes(path.read_bytes())
+    return candidate
 
 
-def _read_manifest(path: str, limit: int | None) -> list[dict[str, Any]]:
-    samples: list[dict[str, Any]] = []
-    with open(path, "r", encoding="utf-8") as handle:
-        for line in handle:
-            line = line.strip()
-            if not line:
-                continue
-            samples.append(json.loads(line))
-            if limit and len(samples) >= limit:
+def _save_npz(path: Path, keypoints: np.ndarray, meta: dict[str, Any]) -> Path | None:
+    temp_path = path.with_name(path.stem + ".tmp.npz")
+    np.savez(str(temp_path), keypoints=keypoints, meta=meta)
+    backup = _backup_existing(path)
+    temp_path.replace(path)
+    return backup
+
+
+def _extract_sample(
+    sample: dict[str, Any],
+    out_dir: Path,
+    overwrite: bool,
+    holistic: Any | None,
+) -> dict[str, Any]:
+    sample_id = sample.get("id")
+    video_path = sample.get("video_path")
+    if not sample_id or not video_path:
+        return {"id": sample_id or "", "status": "failed", "reason": "missing_id_or_video"}
+
+    out_path = out_dir / f"{sample_id}.npz"
+    if out_path.exists() and not overwrite:
+        valid, reason = _validate_npz(out_path)
+        if valid:
+            return {"id": sample_id, "status": "skipped_exists"}
+
+    start_sec = _safe_float(sample.get("start_sec"))
+    end_sec = _safe_float(sample.get("end_sec"))
+
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        return {"id": sample_id, "status": "failed", "reason": f"open_video:{video_path}"}
+
+    fps_value = cap.get(cv2.CAP_PROP_FPS)
+    fps = float(fps_value) if fps_value and fps_value > 0 else None
+    if fps is None and (start_sec is not None or end_sec is not None):
+        cap.release()
+        return {"id": sample_id, "status": "failed", "reason": "invalid_fps"}
+
+    start_frame = 0
+    end_frame: int | None = None
+    if fps is None:
+        fps = 0.0
+    if start_sec is not None:
+        start_frame = int(math.floor(start_sec * fps))
+    if end_sec is not None:
+        end_frame = int(math.ceil(end_sec * fps))
+    if end_frame is not None and end_frame <= start_frame:
+        cap.release()
+        return {"id": sample_id, "status": "failed", "reason": "bad_time_range"}
+
+    if start_frame > 0:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+
+    keypoints: list[np.ndarray] = []
+    missing_left = 0
+    missing_right = 0
+    zero_frames = 0
+
+    def _process_frames(holistic_obj) -> None:
+        nonlocal missing_left, missing_right, zero_frames
+        frame_index = start_frame
+        while True:
+            if end_frame is not None and frame_index >= end_frame:
                 break
-    return samples
+            ok, frame = cap.read()
+            if not ok:
+                break
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = holistic_obj.process(rgb)
+            left_vec = _hand_landmarks_to_vec(results.left_hand_landmarks)
+            right_vec = _hand_landmarks_to_vec(results.right_hand_landmarks)
+            left_missing = results.left_hand_landmarks is None
+            right_missing = results.right_hand_landmarks is None
+            if left_missing:
+                missing_left += 1
+            if right_missing:
+                missing_right += 1
+            if left_missing and right_missing:
+                zero_frames += 1
+            feature = np.concatenate([left_vec.flatten(), right_vec.flatten()]).astype(
+                np.float32
+            )
+            keypoints.append(feature)
+            frame_index += 1
+
+    if holistic is None:
+        with mp.solutions.holistic.Holistic(
+            model_complexity=1, min_detection_confidence=0.5, min_tracking_confidence=0.5
+        ) as holistic_obj:
+            _process_frames(holistic_obj)
+    else:
+        _process_frames(holistic)
+
+    cap.release()
+
+    if not keypoints:
+        return {"id": sample_id, "status": "failed", "reason": "no_frames"}
+
+    keypoints_arr = np.stack(keypoints).astype(np.float32)
+    frame_count = int(keypoints_arr.shape[0])
+    missing_left_rate = float(missing_left / frame_count) if frame_count else 0.0
+    missing_right_rate = float(missing_right / frame_count) if frame_count else 0.0
+    zero_frame_ratio = float(zero_frames / frame_count) if frame_count else 0.0
+
+    meta = {
+        "id": sample_id,
+        "video_path": str(video_path),
+        "frames": frame_count,
+        "fps": fps,
+        "feature_dim": FEATURE_DIM,
+        "missing_left": missing_left_rate,
+        "missing_right": missing_right_rate,
+        "zero_frame_ratio": zero_frame_ratio,
+    }
+    _save_npz(out_path, keypoints_arr, meta)
+    return {
+        "id": sample_id,
+        "status": "processed",
+        "frames": frame_count,
+        "missing_left": missing_left_rate,
+        "missing_right": missing_right_rate,
+        "zero_frame_ratio": zero_frame_ratio,
+    }
+
+
+def _process_sample_worker(
+    sample: dict[str, Any], out_dir: str, overwrite: bool
+) -> dict[str, Any]:
+    return _extract_sample(sample, Path(out_dir), overwrite, holistic=None)
 
 
 def main() -> int:
     args = _parse_args()
-    if not os.path.exists(args.manifest):
-        print(f"ERROR: manifest not found: {args.manifest}", file=sys.stderr)
+    manifest_path = Path(args.manifest)
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    if not manifest_path.exists():
+        print(f"ERROR: manifest not found: {manifest_path}", file=sys.stderr)
         return 1
 
-    samples = _read_manifest(args.manifest, args.limit)
+    samples = _read_manifest(manifest_path, args.limit)
     if not samples:
         print("No samples found to process.", file=sys.stderr)
         return 1
 
-    os.makedirs(args.out_dir, exist_ok=True)
-    _ensure_parent_dir(args.qc_out)
-
-    processed_ok = 0
+    total = len(samples)
+    processed = 0
+    skipped_exists = 0
     failed = 0
-    frames_list: list[int] = []
-    missing_left_list: list[float] = []
-    missing_right_list: list[float] = []
-    summaries: list[dict[str, Any]] = []
 
-    mp_holistic = mp.solutions.holistic
-    with mp_holistic.Holistic(
-        model_complexity=1, min_detection_confidence=0.5, min_tracking_confidence=0.5
-    ) as holistic:
-        for sample in tqdm(samples, desc="Extracting", unit="sample"):
-            sample_id = sample.get("id")
-            video_path = sample.get("video_path")
-            start_sec = _safe_float(sample.get("start_sec"))
-            end_sec = _safe_float(sample.get("end_sec"))
-
-            if not sample_id or not video_path:
-                print(f"WARNING: missing id or video_path in sample: {sample}", file=sys.stderr)
-                failed += 1
+    tasks: list[dict[str, Any]] = []
+    for sample in samples:
+        sample_id = sample.get("id")
+        video_path = sample.get("video_path")
+        if not sample_id or not video_path:
+            failed += 1
+            print(f"WARNING: missing id or video_path in sample: {sample}", file=sys.stderr)
+            continue
+        out_path = out_dir / f"{sample_id}.npz"
+        if out_path.exists() and not args.overwrite:
+            valid, reason = _validate_npz(out_path)
+            if valid:
+                skipped_exists += 1
                 continue
-
-            if start_sec is None or end_sec is None or end_sec <= start_sec:
-                print(
-                    f"WARNING: bad time range for {sample_id}: start={start_sec}, end={end_sec}",
-                    file=sys.stderr,
-                )
-                failed += 1
-                continue
-
-            out_path = os.path.join(args.out_dir, f"{sample_id}.npz")
-            if os.path.exists(out_path) and not args.overwrite:
-                continue
-
-            cap = cv2.VideoCapture(video_path)
-            if not cap.isOpened():
-                print(f"WARNING: cannot open video for {sample_id}: {video_path}", file=sys.stderr)
-                failed += 1
-                continue
-
-            fps_value = cap.get(cv2.CAP_PROP_FPS)
-            fps = float(fps_value) if fps_value and fps_value > 0 else None
-            if fps is None:
-                print(f"WARNING: invalid fps for {sample_id}: {video_path}", file=sys.stderr)
-                cap.release()
-                failed += 1
-                continue
-
-            start_frame = int(math.floor(start_sec * fps))
-            end_frame = int(math.ceil(end_sec * fps))
-            cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
-
-            keypoints: list[np.ndarray] = []
-            missing_left = 0
-            missing_right = 0
-
-            frame_index = start_frame
-            while frame_index < end_frame:
-                ok, frame = cap.read()
-                if not ok:
-                    break
-
-                frame = _resize_frame(frame, args.resize_width)
-                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                results = holistic.process(rgb)
-
-                left_vec = _hand_landmarks_to_vec(results.left_hand_landmarks)
-                right_vec = _hand_landmarks_to_vec(results.right_hand_landmarks)
-                if results.left_hand_landmarks is None:
-                    missing_left += 1
-                if results.right_hand_landmarks is None:
-                    missing_right += 1
-
-                feature = np.concatenate([left_vec.flatten(), right_vec.flatten()]).astype(
-                    np.float32
-                )
-                keypoints.append(feature)
-
-                frame_index += 1
-
-            cap.release()
-
-            if not keypoints:
-                print(f"WARNING: no frames extracted for {sample_id}", file=sys.stderr)
-                failed += 1
-                continue
-
-            keypoints_arr = np.stack(keypoints).astype(np.float32)
-            frame_count = int(keypoints_arr.shape[0])
-            missing_left_rate = float(missing_left / frame_count) if frame_count else 0.0
-            missing_right_rate = float(missing_right / frame_count) if frame_count else 0.0
-
-            meta = {
-                "id": sample_id,
-                "video_path": video_path,
-                "start_sec": start_sec,
-                "end_sec": end_sec,
-                "fps": fps,
-                "frame_count": frame_count,
-                "feature_dim": FEATURE_DIM,
-                "missing_left_rate": missing_left_rate,
-                "missing_right_rate": missing_right_rate,
-            }
-
-            np.savez(out_path, keypoints=keypoints_arr, meta=meta)
-            processed_ok += 1
-            frames_list.append(frame_count)
-            missing_left_list.append(missing_left_rate)
-            missing_right_list.append(missing_right_rate)
-            summaries.append(
-                {
-                    "id": sample_id,
-                    "frames": frame_count,
-                    "missing_left": missing_left_rate,
-                    "missing_right": missing_right_rate,
-                    "out_path": out_path.replace("\\", "/"),
-                }
+            print(
+                f"WARNING: invalid existing npz for {sample_id} ({reason}); regenerating",
+                file=sys.stderr,
             )
+        tasks.append(sample)
 
-    avg_frames = sum(frames_list) / processed_ok if processed_ok else 0.0
-    avg_missing_left = sum(missing_left_list) / processed_ok if processed_ok else 0.0
-    avg_missing_right = sum(missing_right_list) / processed_ok if processed_ok else 0.0
-
-    worst_sorted = sorted(
-        summaries,
-        key=lambda item: max(item["missing_left"], item["missing_right"]),
-        reverse=True,
-    )
-    summary_trimmed = summaries[:50] + worst_sorted[:20]
-
-    qc = {
-        "total_samples": len(samples),
-        "processed_ok": processed_ok,
-        "failed": failed,
-        "avg_frames": avg_frames,
-        "avg_missing_left": avg_missing_left,
-        "avg_missing_right": avg_missing_right,
-        "samples": summary_trimmed,
-    }
-
-    with open(args.qc_out, "w", encoding="utf-8") as qc_f:
-        json.dump(qc, qc_f, ensure_ascii=False, indent=2)
+    if args.workers and args.workers > 1:
+        with ProcessPoolExecutor(max_workers=args.workers) as executor:
+            futures = {
+                executor.submit(_process_sample_worker, sample, str(out_dir), args.overwrite): sample
+                for sample in tasks
+            }
+            total_tasks = len(futures)
+            done = 0
+            for future in as_completed(futures):
+                done += 1
+                result = future.result()
+                status = result.get("status")
+                sample_id = result.get("id", "")
+                if status == "processed":
+                    processed += 1
+                    print(f"[{done}/{total_tasks}] processed {sample_id}")
+                elif status == "skipped_exists":
+                    skipped_exists += 1
+                    print(f"[{done}/{total_tasks}] skipped {sample_id}")
+                else:
+                    failed += 1
+                    reason = result.get("reason", "unknown")
+                    print(
+                        f"WARNING: failed {sample_id}: {reason}",
+                        file=sys.stderr,
+                    )
+    else:
+        with mp.solutions.holistic.Holistic(
+            model_complexity=1, min_detection_confidence=0.5, min_tracking_confidence=0.5
+        ) as holistic:
+            total_tasks = len(tasks)
+            for idx, sample in enumerate(tasks, start=1):
+                sample_id = sample.get("id", "")
+                print(f"[{idx}/{total_tasks}] processing {sample_id}")
+                result = _extract_sample(sample, out_dir, args.overwrite, holistic)
+                status = result.get("status")
+                if status == "processed":
+                    processed += 1
+                    print(f"[{idx}/{total_tasks}] processed {sample_id}")
+                elif status == "skipped_exists":
+                    skipped_exists += 1
+                    print(f"[{idx}/{total_tasks}] skipped {sample_id}")
+                else:
+                    failed += 1
+                    reason = result.get("reason", "unknown")
+                    print(
+                        f"WARNING: failed {sample_id}: {reason}",
+                        file=sys.stderr,
+                    )
 
     print(
-        "QC:",
-        f"total={len(samples)}",
-        f"ok={processed_ok}",
+        "Batch extract:",
+        f"total={total}",
+        f"processed={processed}",
+        f"skipped_exists={skipped_exists}",
         f"failed={failed}",
-        f"avg_frames={avg_frames:.2f}",
-        f"avg_missing_left={avg_missing_left:.3f}",
-        f"avg_missing_right={avg_missing_right:.3f}",
     )
-    print(f"Wrote QC report to {args.qc_out}")
     return 0
 
 

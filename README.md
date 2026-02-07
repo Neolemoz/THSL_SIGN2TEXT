@@ -14,12 +14,17 @@ Example (video file):
 ThaiSignVis manifest conversion:
 `python tools/convert_thaisignvis_to_manifest.py --root data\raw\thaisignvis --out data\manifest\manifest.jsonl --qc_out reports\thaisignvis_qc.json`
 
-Batch keypoint extraction (quick test):
-`python ml/preprocess/batch_extract.py --limit 10`
+## Run This (Smoke)
+Batch extract (small limit):
+`python -m ml.preprocess.batch_extract --manifest data\manifest\manifest.jsonl --out_dir data\processed\keypoints --limit 10`
 
-Baseline training (quick run):
-`python ml/train.py --manifest data/manifest/manifest.jsonl --kp_dir data/processed/keypoints --out_dir reports/run1 --epochs 3`
+QC report:
+`python -m ml.preprocess.qc_keypoints --manifest data\manifest\manifest.jsonl --kp_dir data\processed\keypoints --limit 20 --out reports\qc_keypoints_smoke.json`
 
-Seq2seq baseline (overfit test):
-`python -m ml.train_seq2seq --manifest data/manifest/manifest.jsonl --kp_dir data/processed/keypoints --out_dir reports/overfit_seq2seq --epochs 30 --limit 16`
-`python -m ml.eval_seq2seq --manifest data/manifest/manifest.jsonl --kp_dir data/processed/keypoints --checkpoint reports/overfit_seq2seq/best.pt --out reports/overfit_seq2seq --split train --limit 16`
+Train + eval (short smoke run):
+`python -m ml.train_seq2seq --manifest data\manifest\manifest.jsonl --kp_dir data\processed\keypoints --out_dir reports\smoke_train --epochs 2 --limit 32 --batch_size 8 --lr 3e-4`
+`python -m ml.eval_seq2seq --manifest data\manifest\manifest.jsonl --kp_dir data\processed\keypoints --checkpoint reports\smoke_train\best.pt --out reports\smoke_eval --split val --limit 20`
+
+## Limitations
+- Hand-only 126D keypoints (left+right hands). No pose/face yet.
+- Model collapse is not fully solved; this PR improves observability and pipeline stability first.
