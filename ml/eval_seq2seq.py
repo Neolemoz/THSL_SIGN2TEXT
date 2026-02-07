@@ -4,6 +4,8 @@ import argparse
 import json
 import os
 import random
+import sys
+from collections import Counter
 from typing import List, Tuple
 
 import torch
@@ -12,6 +14,12 @@ from torch.utils.data import DataLoader
 from ml.modeling.dataset import Seq2SeqDataset, collate_seq2seq, load_manifest
 from ml.modeling.seq2seq_model import Seq2SeqModel
 from ml.modeling.text import Vocab, decode_ids
+
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 
 def _parse_args() -> argparse.Namespace:
@@ -323,6 +331,7 @@ def main() -> int:
     wer_total = 0.0
     count = 0
     sample_lines: List[str] = []
+    pred_texts: List[str] = []
     processed = 0
     requested_limit = args.limit
     exit_reason = "exhausted"
@@ -372,6 +381,7 @@ def main() -> int:
                     count += 1
                     processed += 1
                     sample_lines.append(f"{sample_id}\tPRED: {pred}\tGT: {gt}")
+                    pred_texts.append(pred)
                 if requested_limit is not None and processed >= requested_limit:
                     exit_reason = "limit_reached"
                     break
@@ -385,12 +395,32 @@ def main() -> int:
     os.makedirs(args.out, exist_ok=True)
     metrics_path = os.path.join(args.out, "metrics_eval.json")
     samples_path = os.path.join(args.out, "samples.txt")
+    unique_count = len(set(pred_texts))
+    total_count = len(pred_texts)
+    unique_ratio = (unique_count / total_count) if total_count > 0 else 0.0
+    top5 = Counter(pred_texts).most_common(5)
+    top1_pred, top1_count = ("", 0)
+    if top5:
+        top1_pred, top1_count = top5[0]
     with open(metrics_path, "w", encoding="utf-8") as handle:
-        json.dump({"cer": avg_cer, "wer": avg_wer, "samples": count}, handle, ensure_ascii=False, indent=2)
+        json.dump(
+            {
+                "cer": avg_cer,
+                "wer": avg_wer,
+                "samples": count,
+                "unique_count": unique_count,
+                "unique_ratio": unique_ratio,
+                "top5_preds": top5,
+            },
+            handle,
+            ensure_ascii=False,
+            indent=2,
+        )
     with open(samples_path, "w", encoding="utf-8-sig") as handle:
         handle.write("\n".join(sample_lines))
 
     print(f"CER={avg_cer:.4f} WER={avg_wer:.4f} samples={count}")
+    print(f"Diversity: unique={unique_count}/{total_count} top1='{top1_pred}' count={top1_count}")
     print(f"Wrote metrics to {metrics_path}")
     print(f"Wrote samples to {samples_path}")
     print(f"EVAL: requested_limit={requested_limit} processed={processed} wrote={processed}")

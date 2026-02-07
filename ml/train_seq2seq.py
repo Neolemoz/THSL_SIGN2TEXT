@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import random
+import sys
 from typing import List, Tuple
 
 import numpy as np
@@ -18,7 +19,13 @@ from ml.modeling.dataset import (
     load_manifest,
 )
 from ml.modeling.seq2seq_model import Seq2SeqModel
-from ml.modeling.text import Vocab, build_vocab, decode_ids
+from ml.modeling.text import Vocab, build_vocab, decode_ids, encode_text
+
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 
 def _parse_args() -> argparse.Namespace:
@@ -49,6 +56,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--time_mask_prob", type=float, default=0.20)
     parser.add_argument("--time_mask_max_ratio", type=float, default=0.20)
     parser.add_argument("--time_mask_num", type=int, default=2)
+    parser.add_argument("--freq_penalty", type=float, default=0.0)
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
 
@@ -169,6 +177,21 @@ def main() -> int:
 
     vocab = build_vocab(sample.text for sample in train_samples)
     print(f"Vocab size (incl blank): {len(vocab)}")
+    freq = torch.zeros(len(vocab), dtype=torch.float32)
+    for sample in train_samples:
+        for tok_id in encode_text(vocab, sample.text):
+            if tok_id == vocab.blank_id:
+                continue
+            freq[tok_id] += 1.0
+    freq[vocab.pad_id] = 0.0
+    freq[vocab.bos_id] = 0.0
+    freq[vocab.eos_id] = 0.0
+    freq_max = float(freq.max().item())
+    if freq_max > 0.0:
+        freq = freq / freq_max
+    else:
+        freq = torch.zeros_like(freq)
+    freq = freq * freq
 
     augment_rng = torch.Generator()
     augment_rng.manual_seed(args.seed + 1)
@@ -224,6 +247,7 @@ def main() -> int:
         total_loss = 0.0
         masked_ratio_total = 0.0
         masked_ratio_count = 0
+        freq_penalty = freq.to(device) * args.freq_penalty if args.freq_penalty > 0 else None
         for xs, x_lens, y_in, y_out, time_mask_ratios, _, _ in train_loader:
             xs = xs.to(device)
             x_lens = x_lens.to(device)
@@ -234,6 +258,8 @@ def main() -> int:
 
             if tf_ratio >= 0.999:
                 logits, _ = model(xs, x_lens, y_in)
+                if freq_penalty is not None:
+                    logits = logits - freq_penalty
             else:
                 enc_out, enc_lens = model.encoder(xs, x_lens)
                 batch_size, max_u = y_in.shape
@@ -242,7 +268,10 @@ def main() -> int:
                 for t in range(max_u):
                     logits_t = model.decoder(enc_out, enc_lens, y_tokens)
                     last_logits = logits_t[:, -1, :]
-                    step_logits.append(last_logits)
+                    if freq_penalty is not None:
+                        step_logits.append(last_logits - freq_penalty)
+                    else:
+                        step_logits.append(last_logits)
                     if t + 1 < max_u:
                         use_gt = torch.rand(batch_size, device=device) < tf_ratio
                         pred_next = torch.argmax(last_logits, dim=-1)
