@@ -19,7 +19,8 @@ Batch extract (small limit):
 `python -m ml.preprocess.batch_extract --manifest data\manifest\manifest.jsonl --out_dir data\processed\keypoints --limit 10`
 
 QC report:
-`python -m ml.preprocess.qc_keypoints --manifest data\manifest\manifest.jsonl --kp_dir data\processed\keypoints --limit 10 --out reports\qc_keypoints_smoke.json`
+`python -m ml.preprocess.qc_keypoints --manifest data\manifest\manifest.jsonl --kp_dir data\processed\keypoints --limit 20 --out reports\qc_keypoints_smoke.json`
+Note: if QC limit > extracted samples, you will see `missing_npz` in the summary (use `--skip_missing_npz` or match limits).
 
 Train + eval (short smoke run):
 `python -m ml.train_seq2seq --manifest data\manifest\manifest.jsonl --kp_dir data\processed\keypoints --out_dir reports\smoke_train --epochs 2 --limit 32 --batch_size 8 --lr 3e-4`
