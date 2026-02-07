@@ -24,23 +24,28 @@ class KeypointAugmentConfig:
     feature_dropout: float = 0.0
     frame_dropout: float = 0.0
     input_noise_std: float = 0.0
+    time_mask_prob: float = 0.0
+    time_mask_max_ratio: float = 0.0
+    time_mask_num: int = 0
 
 
 def _apply_keypoint_augment(
     x: torch.Tensor,
     rng: torch.Generator,
     config: KeypointAugmentConfig,
-) -> torch.Tensor:
+) -> tuple[torch.Tensor, float]:
     if (
         config.feature_dropout <= 0.0
         and config.frame_dropout <= 0.0
         and config.input_noise_std <= 0.0
+        and config.time_mask_prob <= 0.0
     ):
-        return x
+        return x, 0.0
     if x.numel() == 0:
-        return x
+        return x, 0.0
 
     x = x.clone()
+    time_mask_ratio = 0.0
     if config.feature_dropout > 0.0 and x.shape[1] > 0:
         feature_mask = torch.rand(x.shape[1], generator=rng) < config.feature_dropout
         if feature_mask.any().item():
@@ -51,6 +56,29 @@ def _apply_keypoint_augment(
         if frame_mask.any().item():
             x[frame_mask] = 0.0
 
+    if config.time_mask_prob > 0.0 and config.time_mask_num > 0 and x.shape[0] > 0:
+        if torch.rand((), generator=rng).item() < config.time_mask_prob:
+            total_frames = x.shape[0]
+            max_len = max(1, int(total_frames * config.time_mask_max_ratio))
+            max_len = min(total_frames, max_len)
+            time_mask = torch.zeros(total_frames, dtype=torch.bool)
+            for _ in range(config.time_mask_num):
+                span_len = int(
+                    torch.randint(1, max_len + 1, (1,), generator=rng).item()
+                )
+                if total_frames - span_len <= 0:
+                    start = 0
+                else:
+                    start = int(
+                        torch.randint(
+                            0, total_frames - span_len + 1, (1,), generator=rng
+                        ).item()
+                    )
+                time_mask[start : start + span_len] = True
+            if time_mask.any().item():
+                x[time_mask] = 0.0
+                time_mask_ratio = float(time_mask.float().mean().item())
+
     if config.input_noise_std > 0.0:
         nonzero = x != 0
         if nonzero.any().item():
@@ -58,7 +86,7 @@ def _apply_keypoint_augment(
                 x.shape, generator=rng, device=x.device, dtype=x.dtype
             ) * config.input_noise_std
             x = x + noise * nonzero
-    return x
+    return x, time_mask_ratio
 
 
 def load_manifest(
@@ -127,8 +155,11 @@ class KeypointTextDataset(Dataset):
         data = np.load(sample.npz_path, allow_pickle=True)
         keypoints = data["keypoints"].astype(np.float32)
         x = torch.from_numpy(keypoints)
+        time_mask_ratio = 0.0
         if self.augment_config is not None and self.augment_rng is not None:
-            x = _apply_keypoint_augment(x, self.augment_rng, self.augment_config)
+            x, time_mask_ratio = _apply_keypoint_augment(
+                x, self.augment_rng, self.augment_config
+            )
         y_ids = encode_text(self.vocab, sample.text)
         y = torch.tensor(y_ids, dtype=torch.long)
         return {
@@ -138,6 +169,7 @@ class KeypointTextDataset(Dataset):
             "y": y,
             "y_len": y.shape[0],
             "text": sample.text,
+            "time_mask_ratio": time_mask_ratio,
         }
 
 
@@ -193,8 +225,11 @@ class Seq2SeqDataset(Dataset):
         data = np.load(sample.npz_path, allow_pickle=True)
         keypoints = data["keypoints"].astype(np.float32)
         x = torch.from_numpy(keypoints)
+        time_mask_ratio = 0.0
         if self.augment_config is not None and self.augment_rng is not None:
-            x = _apply_keypoint_augment(x, self.augment_rng, self.augment_config)
+            x, time_mask_ratio = _apply_keypoint_augment(
+                x, self.augment_rng, self.augment_config
+            )
         y_ids = encode_text_seq2seq(self.vocab, sample.text)
         y = torch.tensor(y_ids, dtype=torch.long)
         return {
@@ -204,10 +239,12 @@ class Seq2SeqDataset(Dataset):
             "y": y,
             "y_len": y.shape[0],
             "text": sample.text,
+            "time_mask_ratio": time_mask_ratio,
         }
 
 
 def collate_seq2seq(batch: List[dict[str, Any]], pad_id: int) -> Tuple[
+    torch.Tensor,
     torch.Tensor,
     torch.Tensor,
     torch.Tensor,
@@ -226,6 +263,7 @@ def collate_seq2seq(batch: List[dict[str, Any]], pad_id: int) -> Tuple[
     x_lens = torch.zeros((len(batch_sorted),), dtype=torch.long)
     y_in = torch.full((len(batch_sorted), max_y - 1), pad_id, dtype=torch.long)
     y_out = torch.full((len(batch_sorted), max_y - 1), pad_id, dtype=torch.long)
+    time_mask_ratios = torch.zeros((len(batch_sorted),), dtype=torch.float32)
     ids: List[str] = []
     texts: List[str] = []
 
@@ -239,7 +277,8 @@ def collate_seq2seq(batch: List[dict[str, Any]], pad_id: int) -> Tuple[
         if y_len > 1:
             y_in[i, : y_len - 1] = y[:-1]
             y_out[i, : y_len - 1] = y[1:]
+        time_mask_ratios[i] = float(item.get("time_mask_ratio", 0.0))
         ids.append(item["id"])
         texts.append(item["text"])
 
-    return xs, x_lens, y_in, y_out, ids, texts
+    return xs, x_lens, y_in, y_out, time_mask_ratios, ids, texts

@@ -46,6 +46,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--feature_dropout", type=float, default=0.10)
     parser.add_argument("--frame_dropout", type=float, default=0.05)
     parser.add_argument("--input_noise_std", type=float, default=0.01)
+    parser.add_argument("--time_mask_prob", type=float, default=0.20)
+    parser.add_argument("--time_mask_max_ratio", type=float, default=0.20)
+    parser.add_argument("--time_mask_num", type=int, default=2)
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
 
@@ -137,12 +140,18 @@ def main() -> int:
         feature_dropout=args.feature_dropout,
         frame_dropout=args.frame_dropout,
         input_noise_std=args.input_noise_std,
+        time_mask_prob=args.time_mask_prob,
+        time_mask_max_ratio=args.time_mask_max_ratio,
+        time_mask_num=args.time_mask_num,
     )
     print(
         "Augment config (train only):",
         f"feature_dropout={augment_config.feature_dropout:.3f}",
         f"frame_dropout={augment_config.frame_dropout:.3f}",
         f"input_noise_std={augment_config.input_noise_std:.3f}",
+        f"time_mask_prob={augment_config.time_mask_prob:.3f}",
+        f"time_mask_max_ratio={augment_config.time_mask_max_ratio:.3f}",
+        f"time_mask_num={augment_config.time_mask_num}",
         f"seed={args.seed}",
     )
 
@@ -202,6 +211,9 @@ def main() -> int:
             f"feature_dropout={augment_config.feature_dropout:.3f}",
             f"frame_dropout={augment_config.frame_dropout:.3f}",
             f"input_noise_std={augment_config.input_noise_std:.3f}",
+            f"time_mask_prob={augment_config.time_mask_prob:.3f}",
+            f"time_mask_max_ratio={augment_config.time_mask_max_ratio:.3f}",
+            f"time_mask_num={augment_config.time_mask_num}",
         )
         if args.epochs > 1:
             ratio = (epoch - 1) / (args.epochs - 1)
@@ -210,11 +222,15 @@ def main() -> int:
         tf_ratio = args.tf_start + (args.tf_end - args.tf_start) * ratio
         model.train()
         total_loss = 0.0
-        for xs, x_lens, y_in, y_out, _, _ in train_loader:
+        masked_ratio_total = 0.0
+        masked_ratio_count = 0
+        for xs, x_lens, y_in, y_out, time_mask_ratios, _, _ in train_loader:
             xs = xs.to(device)
             x_lens = x_lens.to(device)
             y_in = y_in.to(device)
             y_out = y_out.to(device)
+            masked_ratio_total += float(time_mask_ratios.sum().item())
+            masked_ratio_count += int(time_mask_ratios.numel())
 
             if tf_ratio >= 0.999:
                 logits, _ = model(xs, x_lens, y_in)
@@ -241,6 +257,7 @@ def main() -> int:
             total_loss += loss.item()
 
         avg_loss = total_loss / max(1, len(train_loader))
+        avg_time_mask_ratio = masked_ratio_total / max(1, masked_ratio_count)
         metrics["train_loss"].append(avg_loss)
 
         model.eval()
@@ -249,7 +266,7 @@ def main() -> int:
         count = 0
         sample_lines: List[str] = []
         with torch.no_grad():
-            for xs, x_lens, y_in, y_out, ids, texts in val_loader:
+            for xs, x_lens, y_in, y_out, _time_mask_ratios, ids, texts in val_loader:
                 xs = xs.to(device)
                 x_lens = x_lens.to(device)
                 max_len = y_in.shape[1] + 1
@@ -275,7 +292,8 @@ def main() -> int:
 
         print(
             f"Epoch {epoch}/{args.epochs} - loss={avg_loss:.4f} val_CER={avg_cer:.4f} "
-            f"val_WER={avg_wer:.4f} tf_ratio={tf_ratio:.3f} {'*best*' if improved else ''}"
+            f"val_WER={avg_wer:.4f} tf_ratio={tf_ratio:.3f} "
+            f"time_mask_ratio={avg_time_mask_ratio:.4f} {'*best*' if improved else ''}"
         )
 
         with open(os.path.join(args.out_dir, "samples.txt"), "w", encoding="utf-8-sig") as handle:

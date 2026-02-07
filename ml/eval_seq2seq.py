@@ -328,7 +328,7 @@ def main() -> int:
     exit_reason = "exhausted"
     try:
         with torch.no_grad():
-            for batch_idx, (xs, x_lens, y_in, y_out, ids, texts) in enumerate(loader):
+            for batch_idx, (xs, x_lens, y_in, y_out, _time_mask_ratios, ids, texts) in enumerate(loader):
                 if batch_idx < 5:
                     print(
                         f"DEBUG: batch_idx={batch_idx} batch_size={len(ids)} processed={processed}"
